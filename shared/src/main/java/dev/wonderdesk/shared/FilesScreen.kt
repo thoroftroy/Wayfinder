@@ -30,6 +30,14 @@ private data class FileRow(val file: DocumentFile, val name: String, val folder:
 enum class FileOrder(val label: String) { NAME_ASC("Name A–Z"), NAME_DESC("Name Z–A"), SIZE_DESC("Largest first") }
 data class FileSortKey(val name: String, val folder: Boolean, val bytes: Long)
 
+/** Count files (not folders) and sum their bytes. Pure for testing; display formatting stays with the UI. */
+fun summarizeSortKeys(keys: List<FileSortKey>): Pair<Int, Long> {
+    var bytes = 0L
+    var files = 0
+    keys.forEach { if (!it.folder && it.bytes >= 0) { files++; bytes += it.bytes } }
+    return files to bytes
+}
+
 /** Directories remain first in every order; ties are deterministic. */
 fun compareFileKeys(a: FileSortKey, b: FileSortKey, order: FileOrder): Int {
     if (a.folder != b.folder) return if (a.folder) -1 else 1
@@ -121,6 +129,10 @@ fun FilesScreen() {
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         val visible = rows.filter { it.name.contains(query, true) }.sortedWith { a, b ->
             compareFileKeys(FileSortKey(a.name, a.folder, a.bytes), FileSortKey(b.name, b.folder, b.bytes), order)
+        }
+        if (visible.isNotEmpty()) {
+            val (fileCount, totalBytes) = summarizeSortKeys(visible.map { FileSortKey(it.name, it.folder, it.bytes) })
+            item { Text("$fileCount files · ${android.text.format.Formatter.formatShortFileSize(context, totalBytes)} total in view", style = MaterialTheme.typography.bodySmall) }
         }
         items(visible, key = { it.file.uri.toString() }) { row ->
             ElevatedCard(Modifier.fillMaxWidth().combinedClickable(enabled = !op.busy, onLongClick = { selected = row }, onClick = {

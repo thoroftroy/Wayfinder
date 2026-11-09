@@ -14,4 +14,9 @@ class FileSortingTest {
         assertEquals(listOf("z folder", "a folder", "small", "large"), names(FileOrder.NAME_DESC))
         assertEquals(listOf("a folder", "z folder", "large", "small"), names(FileOrder.SIZE_DESC))
     }
+    @Test fun summaryCountsOnlyFilesAndSumsBytes() {
+        assertEquals(0 to 0L, summarizeSortKeys(emptyList()))
+        assertEquals(0 to 0L, summarizeSortKeys(listOf(FileSortKey("empty", true, 0))))
+        assertEquals(2 to 53L, summarizeSortKeys(listOf(FileSortKey("a", false, 3), FileSortKey("dir", true, 999), FileSortKey("b", false, 50))))
+    }
 }
