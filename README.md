@@ -2,6 +2,10 @@
 
 Wayfinder browses and manages a folder you choose. By Rednave.
 
+## Easiest install and updates
+
+Get App Hub once from https://github.com/thoroftroy/App-Hub/releases, then use it to install and update this app and the rest of the suite. You will not need to download APKs by hand.
+
 ## Install
 
 Requires Android 10 or newer (best on Android 13+).
