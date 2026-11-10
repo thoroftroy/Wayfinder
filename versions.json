@@ -1,7 +1,7 @@
 {
   "ecosystem": "0.2.22",
   "apps": {
-    "wayfinder": "0.2.11",
+    "wayfinder": "0.2.13",
     "packrat": "0.2.5",
     "memories": "0.2.3",
     "cinema": "0.2.3",
