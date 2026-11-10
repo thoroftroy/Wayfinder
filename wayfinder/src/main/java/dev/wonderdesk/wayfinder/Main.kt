@@ -81,7 +81,7 @@ fun kindIcon(k: Kind): Pair<ImageVector, Color> = when (k) {
 private fun hasAccess() = Environment.isExternalStorageManager()
 
 /** Clipboard of files waiting to be pasted. */
-private data class Clip(val files: List<File>, val move: Boolean)
+data class Clip(val files: List<File>, val move: Boolean)
 
 @Composable
 fun WayfinderApp() {
@@ -119,7 +119,10 @@ fun WayfinderApp() {
             tab = "browse"; category = null
         }
     }
+    LaunchedEffect(Unit) { (context as ComponentActivity).intent?.getStringExtra("tab")?.let { tab = it } }
     when {
+        tab == "network" -> NetworkScreen(onTab = { tab = it }, onShowLocal = { path = it.path; tab = "browse"; category = null })
+        tab == "safe" -> SafeScreen(onTab = { tab = it })
         tab == "browse" || category != null -> Browser(
             dir = File(path), category = category, refresh = refresh, focusName = focusName,
             onNavigate = { path = it.path; category = null; focusName = null },
@@ -131,7 +134,7 @@ fun WayfinderApp() {
     }
 }
 
-private val TABS = listOf(WonderTab("home", "Home", WonderIcons.Home), WonderTab("browse", "Browse", WonderIcons.FolderOpen), WonderTab("trash", "Recycle bin", WonderIcons.Delete))
+val TABS = listOf(WonderTab("home", "Home", WonderIcons.Home), WonderTab("browse", "Browse", WonderIcons.FolderOpen), WonderTab("network", "Network", WonderIcons.Hub), WonderTab("trash", "Recycle bin", WonderIcons.Delete))
 
 /* ----------------------------------------------------- home ------------------------------------------------- */
 
@@ -144,7 +147,16 @@ private val CATEGORIES = listOf(
 private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> Unit, onTab: (String) -> Unit) {
     val context = LocalContext.current
     val p = wonderPalette()
-    val volumes = remember(refresh) { Storage.volumes(context) }
+    var mounts by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        // USB drives and SD cards appear and disappear live.
+        val r = object : android.content.BroadcastReceiver() { override fun onReceive(c: Context, i: Intent) { mounts++ } }
+        val f = android.content.IntentFilter().apply { listOf(Intent.ACTION_MEDIA_MOUNTED, Intent.ACTION_MEDIA_UNMOUNTED, Intent.ACTION_MEDIA_REMOVED, Intent.ACTION_MEDIA_EJECT, Intent.ACTION_MEDIA_BAD_REMOVAL).forEach { addAction(it) }; addDataScheme("file") }
+        androidx.core.content.ContextCompat.registerReceiver(context, r, f, androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
+        onDispose { context.unregisterReceiver(r) }
+    }
+    var volumes by remember { mutableStateOf<List<Volume>>(emptyList()) }
+    LaunchedEffect(refresh, mounts) { volumes = withContext(Dispatchers.IO) { Storage.volumes(context) } }
     var bookmarks by remember(refresh) { mutableStateOf(Bookmarks.all(context)) }
     WonderApp(appName = "Wayfinder", about = ABOUT, tabs = TABS, selectedTab = "home", onTab = onTab) {
         Page {
@@ -153,18 +165,24 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                     if (i > 0) PanelDivider()
                     Column(Modifier.fillMaxWidth().clickable { onOpen(v.root) }.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconTile(if (v.removable) WonderIcons.SdStorage else WonderIcons.PhoneAndroid, if (v.removable) Color(0xFFE67E22) else Color(0xFF1E7FE8))
+                            IconTile(when { v.usb -> WonderIcons.Usb; v.removable -> WonderIcons.SdStorage; else -> WonderIcons.PhoneAndroid }, when { v.usb -> Color(0xFF16A085); v.removable -> Color(0xFFE67E22); else -> Color(0xFF1E7FE8) })
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(v.name, style = MaterialTheme.typography.bodyLarge)
                                 Text("${formatBytes(v.total - v.free)} used of ${formatBytes(v.total)} · ${formatBytes(v.free)} free", style = MaterialTheme.typography.bodySmall, color = p.secondaryText)
                             }
+                            if (v.removable) TextButton(onClick = { context.launchSafely(Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS)) {} }) { Text("Eject") }
                             Icon(WonderIcons.ChevronRight, null, tint = p.secondaryText)
                         }
                         val used = (v.total - v.free).toFloat() / v.total.coerceAtLeast(1)
                         AquaProgress(used, Modifier.fillMaxWidth(), if (used > .9f) p.danger else p.accent)
                     }
                 }
+            }
+            Panel(title = "Protected and shared") {
+                ListRow("Safe folder", subtitle = "Encrypted, locked with your fingerprint or screen lock", icon = WonderIcons.Lock, tint = Color(0xFF8E44AD), chevron = true, onClick = { onTab("safe") })
+                PanelDivider()
+                ListRow("Network", subtitle = if (ShareService.running) "Sharing on ${ShareService.address}" else "Windows, Mac and NAS shares, or share this phone over Wi-Fi", icon = WonderIcons.Hub, tint = Color(0xFF16A085), chevron = true, onClick = { onTab("network") })
             }
             Panel(title = "Categories") {
                 LazyVerticalGrid(GridCells.Fixed(4), Modifier.fillMaxWidth().height(200.dp).padding(8.dp), userScrollEnabled = false) {
@@ -203,21 +221,29 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
 
 /* ---------------------------------------------------- browser ----------------------------------------------- */
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+private val thumbDispatcher = Dispatchers.IO.limitedParallelism(3)
+
 private val thumbs = object : LruCache<String, Bitmap>(48 * 1024 * 1024) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount }
 
 @Composable
 private fun thumbnail(f: File): ImageBitmap? {
     val k = f.kind()
     if (k != Kind.Image && k != Kind.Video && k != Kind.Apk) return null
-    val key = f.path + f.lastModified()
+    return thumbnail(f, k, f.lastModified())
+}
+
+@Composable
+private fun thumbnail(f: File, k: Kind, modified: Long): ImageBitmap? {
+    val key = f.path + modified
     var bmp by remember(key) { mutableStateOf(thumbs.get(key)) }
     val context = LocalContext.current
     LaunchedEffect(key) {
         if (bmp != null) return@LaunchedEffect
-        bmp = withContext(Dispatchers.IO) {
+        bmp = withContext(thumbDispatcher) {
             runCatching {
                 when (k) {
-                    Kind.Image -> {
+                    Kind.Image -> runCatching { ThumbnailUtils.createImageThumbnail(f, Size(192, 192), null) }.getOrNull() ?: run {
                         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }; BitmapFactory.decodeFile(f.path, o)
                         var s = 1; while (o.outWidth / (s * 2) >= 160 && o.outHeight / (s * 2) >= 160) s *= 2
                         BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = s }) as Bitmap?
@@ -231,7 +257,14 @@ private fun thumbnail(f: File): ImageBitmap? {
             }.getOrNull()?.also { thumbs.put(key, it) }
         }
     }
-    return bmp?.asImageBitmap()
+    return remember(bmp) { bmp?.asImageBitmap() }
+}
+
+@Composable
+fun EntryIcon(e: Entry, size: androidx.compose.ui.unit.Dp = 40.dp) {
+    val t = if (e.kind == Kind.Image || e.kind == Kind.Video || e.kind == Kind.Apk) thumbnail(e.file, e.kind, e.modified) else null
+    if (t != null) Image(t, null, Modifier.size(size).clip(RoundedCornerShape(size * .18f)), contentScale = ContentScale.Crop)
+    else { val (icon, tint) = kindIcon(e.kind); IconTile(icon, tint, size) }
 }
 
 @Composable
@@ -254,41 +287,41 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
     var desc by rememberSaveable { mutableStateOf(prefs.getBoolean("desc", false)) }
     var grid by rememberSaveable { mutableStateOf(prefs.getBoolean("grid", false)) }
     var hidden by rememberSaveable { mutableStateOf(prefs.getBoolean("hidden", false)) }
-    var files by remember { mutableStateOf<List<File>?>(null) }
+    var files by remember { mutableStateOf<List<Entry>?>(null) }
     var selected by remember(dir.path, category) { mutableStateOf(setOf<String>()) }
     var tick by remember { mutableIntStateOf(0) }
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<File>?>(null) }
+    var results by remember { mutableStateOf<List<Entry>?>(null) }
     var dialog by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableStateOf<Pair<String, Progress?>?>(null) }
     var props by remember { mutableStateOf<List<File>?>(null) }
     val toastRef = remember { mutableStateOf<(String) -> Unit>({}) }
+    // Everything a row shows is read here, off the main thread, so scrolling never waits on the disk.
     LaunchedEffect(dir.path, category, sort, desc, hidden, refresh, tick) {
-        files = null
+        val keepOld = files != null && tick > 0
+        if (!keepOld) files = null
         files = withContext(Dispatchers.IO) {
-            val list = if (category != null) {
+            if (category != null) {
                 val c = CATEGORIES.first { it.first == category }
-                Ops.category(Storage.primary, c.second, c.third)
-            } else dir.listFiles()?.filter { hidden || !it.name.startsWith(".") }.orEmpty()
-            val cmp = when (sort) {
-                SortBy.Name -> compareBy<File> { it.name.lowercase() }
-                SortBy.Date -> compareBy { it.lastModified() }
-                SortBy.Size -> compareBy { if (it.isDirectory) -1 else it.length() }
-                SortBy.Type -> compareBy<File> { it.extension.lowercase() }.thenBy { it.name.lowercase() }
-            }.let { if (desc) it.reversed() else it }
-            if (category != null && sort == SortBy.Name) list else list.sortedWith(compareByDescending<File> { it.isDirectory }.then(cmp))
+                val list = Listing.category(context, c.second, c.third)
+                if (sort == SortBy.Date && desc || sort == SortBy.Name && !desc && c.third != null) list else Listing.sort(list, sort.name, desc, foldersFirst = false)
+            } else Listing.sort(Listing.list(dir, hidden), sort.name, desc)
         }
     }
     LaunchedEffect(query, searching) {
         if (!searching || query.length < 2) { results = null; return@LaunchedEffect }
-        kotlinx.coroutines.delay(300)
-        val found = mutableListOf<File>()
-        withContext(Dispatchers.IO) { Ops.search(if (category != null) Storage.primary else dir, query, hidden) { found += it } }
-        results = found.sortedByDescending { it.lastModified() }
+        kotlinx.coroutines.delay(250)
+        results = emptyList()
+        Ops.cancel = false
+        try {
+            withContext(Dispatchers.IO) {
+                Listing.search(context, if (category != null) Storage.primary else dir, query, hidden) { batch -> scope.launch { results = (results.orEmpty() + batch).distinctBy { it.path } } }
+            }
+        } finally { Ops.cancel = true }
     }
     val shown = results ?: files.orEmpty()
-    val selection = shown.filter { it.path in selected }
+    val selection = shown.filter { it.path in selected }.map { it.file }
     fun runOp(label: String, work: suspend ((Progress) -> Unit) -> Unit) {
         progress = label to null
         scope.launch {
@@ -325,6 +358,10 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
         menu = if (inSelect) listOfNotNull(
             if (selection.size == 1) WonderMenuItem("Rename", WonderIcons.DriveFileRenameOutline) { dialog = "rename" } else null,
             WonderMenuItem("Compress to ZIP", WonderIcons.FolderZip) { dialog = "zip" },
+            WonderMenuItem("Move to Safe folder", WonderIcons.Lock) {
+                val src = selection
+                (context as? android.app.Activity)?.let { a -> Safe.authenticate(a) { ok, err -> if (ok) runOp("Move to Safe folder") { rep -> Safe.add(context, src, rep) } else err?.let { toastRef.value(it) } } }
+            },
             if (selection.size == 1 && selection[0].extension.equals("zip", true)) WonderMenuItem("Extract here", WonderIcons.Unarchive) {
                 val z = selection[0]; val out = Ops.uniqueName(z.parentFile ?: dir, z.nameWithoutExtension)
                 runOp("Extract") { rep -> out.mkdirs(); Ops.unzip(z, out, rep) }
@@ -349,13 +386,13 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                     files == null && results == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
                     shown.isEmpty() -> EmptyState(if (results != null) "Nothing found" else "This folder is empty", if (results != null) "No names contain “$query”." else "Use + to make a folder, or paste files here.", icon = WonderIcons.FolderOpen)
                     grid -> LazyVerticalGrid(GridCells.Adaptive(104.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
-                        items(shown, key = { it.path }) { f ->
-                            val sel = f.path in selected
+                        items(shown, key = { it.path }) { e ->
+                            val sel = e.path in selected
                             Column(Modifier.padding(4.dp).clip(RoundedCornerShape(10.dp)).background(if (sel) p.selection.copy(alpha = .2f) else Color.Transparent)
-                                .combinedClickable(onClick = { if (inSelect) selected = if (sel) selected - f.path else selected + f.path else if (f.isDirectory) onNavigate(f) else openFile(context, f) { toastRef.value(it) } },
-                                    onLongClick = { selected = selected + f.path }).padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                FileIcon(f, 72.dp)
-                                Text(f.name, style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                                .combinedClickable(onClick = { if (inSelect) selected = if (sel) selected - e.path else selected + e.path else if (e.isDir) onNavigate(e.file) else openFile(context, e.file) { toastRef.value(it) } },
+                                    onLongClick = { selected = selected + e.path }).padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                EntryIcon(e, 72.dp)
+                                Text(e.name, style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                             }
                         }
                     }
@@ -363,17 +400,27 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                         val listState = androidx.compose.foundation.lazy.rememberLazyListState()
                         LaunchedEffect(focusName, shown.size) { focusName?.let { n -> shown.indexOfFirst { it.name == n }.takeIf { it >= 0 }?.let { listState.scrollToItem(it); selected = setOf(shown[it].path) } } }
                         LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp)) {
-                            itemsIndexed(shown, key = { _, f -> f.path }) { i, f ->
-                                val sel = f.path in selected
-                                val sub = if (f.isDirectory) (f.list()?.size ?: 0).let { "$it item${if (it == 1) "" else "s"}" } else formatBytes(f.length())
-                                ListRow(f.name, Modifier.panelItem(i, shown.size), subtitle = "$sub · " + DateUtils.getRelativeTimeSpanString(f.lastModified()) +
-                                        if (results != null || category != null) " · " + (f.parent ?: "").removePrefix(Storage.primary.path).ifBlank { "/" } else "",
-                                    leading = { FileIcon(f) }, selected = sel,
-                                    trailing = if (inSelect) ({ Checkbox(sel, { on -> selected = if (on) selected + f.path else selected - f.path }) }) else null,
-                                    onLongClick = { selected = selected + f.path },
-                                    onClick = { if (inSelect) selected = if (sel) selected - f.path else selected + f.path else if (f.isDirectory) onNavigate(f) else openFile(context, f) { toastRef.value(it) } })
+                            itemsIndexed(shown, key = { _, e -> e.path }) { i, e ->
+                                val sel = e.path in selected
+                                val sub = remember(e) {
+                                    (if (e.isDir) "${e.children} item${if (e.children == 1) "" else "s"}" else formatBytes(e.size)) + " · " + DateUtils.getRelativeTimeSpanString(e.modified) +
+                                        if (results != null || category != null) " · " + (e.file.parent ?: "").removePrefix(Storage.primary.path).ifBlank { "/" } else ""
+                                }
+                                ListRow(e.name, Modifier.panelItem(i, shown.size), subtitle = sub,
+                                    leading = { EntryIcon(e) }, selected = sel,
+                                    trailing = if (inSelect) ({ Checkbox(sel, { on -> selected = if (on) selected + e.path else selected - e.path }) }) else null,
+                                    onLongClick = { selected = selected + e.path },
+                                    onClick = { if (inSelect) selected = if (sel) selected - e.path else selected + e.path else if (e.isDir) onNavigate(e.file) else openFile(context, e.file) { toastRef.value(it) } })
                             }
                         }
+                    }
+                }
+                netClip?.let { nc ->
+                    if (!inSelect && category == null) Row(Modifier.align(Alignment.BottomCenter).padding(16.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(p.panel)
+                        .border(1.dp, p.panelBorder, RoundedCornerShape(14.dp)).padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${nc.entries.size} item${if (nc.entries.size == 1) "" else "s"} from ${nc.server.label}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                        WButton("Cancel", { netClip = null }, kind = ButtonKind.Plain)
+                        WButton("Download here", { val c = nc; netClip = null; runOp("Download") { rep -> downloadFromNet(c, dir, rep) } }, kind = ButtonKind.Primary)
                     }
                 }
                 clip?.let { c ->
@@ -421,7 +468,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
     props?.let { list -> PropertiesDialog(list) { props = null } }
 }
 
-private var clip by mutableStateOf<Clip?>(null)
+var clip by mutableStateOf<Clip?>(null)
 
 @Composable
 private fun Breadcrumbs(dir: File, onNavigate: (File) -> Unit) {
@@ -498,13 +545,14 @@ private fun TrashScreen(onTab: (String) -> Unit) {
     var items by remember { mutableStateOf<List<Ops.Trashed>>(emptyList()) }
     var tick by remember { mutableIntStateOf(0) }
     var confirm by remember { mutableStateOf(false) }
-    LaunchedEffect(tick) { items = withContext(Dispatchers.IO) { Ops.trashed() } }
+    var trashSize by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(tick) { items = withContext(Dispatchers.IO) { Ops.trashed() }; trashSize = withContext(Dispatchers.IO) { items.sumOf { Ops.totalSize(it.file) } } }
     WonderApp(appName = "Wayfinder", about = ABOUT, tabs = TABS, selectedTab = "trash", onTab = onTab, title = "Recycle bin",
         menu = listOf(WonderMenuItem("Empty recycle bin", WonderIcons.DeleteSweep, danger = true) { confirm = true })) {
         val toast = LocalToast.current
         if (items.isEmpty()) EmptyState("Recycle bin is empty", "Files you delete in Wayfinder wait here for 30 days before they're removed for good.", icon = WonderIcons.Delete)
         else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
-            item { Text("${items.size} items · ${formatBytes(items.sumOf { Ops.totalSize(it.file) })}", Modifier.padding(6.dp, 0.dp, 6.dp, 10.dp), color = p.secondaryText, style = MaterialTheme.typography.bodySmall) }
+            item { Text("${items.size} items" + (trashSize?.let { " · " + formatBytes(it) } ?: ""), Modifier.padding(6.dp, 0.dp, 6.dp, 10.dp), color = p.secondaryText, style = MaterialTheme.typography.bodySmall) }
             itemsIndexed(items, key = { _, t -> t.id }) { i, t ->
                 ListRow(File(t.from).name, Modifier.panelItem(i, items.size), subtitle = "From ${File(t.from).parent?.removePrefix(Storage.primary.path)?.ifBlank { "/" }} · deleted ${relativeTime(t.at)}",
                     leading = { FileIcon(t.file) }, trailing = {

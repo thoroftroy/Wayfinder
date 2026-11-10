@@ -21,3 +21,12 @@ tasks.register("collectRootApk") {
 afterEvaluate {
     tasks.named("assembleDebug") { finalizedBy("collectRootApk") }
 }
+
+dependencies {
+    // SMB 2/3 client for network shares (Apache-2.0).
+    implementation("com.hierynomus:smbj:0.13.0")
+}
+
+android {
+    packaging { resources { excludes += setOf("META-INF/versions/**", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/BCKEY.DSA", "META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/DEPENDENCIES", "META-INF/INDEX.LIST") } }
+}

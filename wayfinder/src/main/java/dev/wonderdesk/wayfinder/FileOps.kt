@@ -33,7 +33,7 @@ fun File.kind(): Kind {
 fun File.mime(): String = if (isDirectory) "resource/folder" else
     MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase()) ?: when (kind()) { Kind.Text, Kind.Code -> "text/plain"; else -> "*/*" }
 
-data class Volume(val name: String, val root: File, val total: Long, val free: Long, val removable: Boolean)
+data class Volume(val name: String, val root: File, val total: Long, val free: Long, val removable: Boolean, val usb: Boolean = false)
 
 object Storage {
     val primary: File get() = Environment.getExternalStorageDirectory()
@@ -43,7 +43,10 @@ object Storage {
         return sm.storageVolumes.mapNotNull { v ->
             val dir = v.directory ?: return@mapNotNull null
             val st = runCatching { StatFs(dir.path) }.getOrNull() ?: return@mapNotNull null
-            Volume(if (v.isPrimary) "Internal storage" else v.getDescription(context), dir, st.totalBytes, st.availableBytes, v.isRemovable)
+            val desc = v.getDescription(context)
+            // Android describes OTG drives as "USB drive" / "<brand> USB"; SD cards as "SD card".
+            val usb = v.isRemovable && (desc.contains("USB", true) || runCatching { v.javaClass.getMethod("getDisk").invoke(v)?.let { d -> d.javaClass.getMethod("isUsb").invoke(d) as? Boolean } }.getOrNull() == true)
+            Volume(if (v.isPrimary) "Internal storage" else desc, dir, st.totalBytes, st.availableBytes, v.isRemovable, usb)
         }
     }
 
