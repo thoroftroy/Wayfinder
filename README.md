@@ -1,21 +1,25 @@
-# Wayfinder for Android
+# Wayfinder
 
-Browses and manages a folder you choose.
+A complete file manager for your phone and SD cards.
 
-## Easiest install and updates
+## What it does
 
-Get App Hub once from https://github.com/thoroftroy/App-Hub/releases, then use it to install and update this app and the rest of the suite. You will not need to download APKs by hand.
-## Install
+- Browse everything on your phone with breadcrumbs, list or grid view, thumbnails, sorting and hidden files. Android asks you once for all files access.
+- Home shows storage use, categories (images, videos, audio, documents, archives, APKs, recent, downloads), common places and your bookmarks.
+- Select many to copy, move, rename, delete, share, compress to ZIP, extract ZIPs here, or see properties and folder sizes.
+- Deleted files go to a **Recycle bin** for 30 days. Search finds files by name in the current folder and everything below it.
+- Files open in the right Wonderdesk app: archives in Packrat, PDFs in Pages, photos in Memories, videos in Cinema, text in Scribble. APKs open the installer.
 
-Install the APK, then open the app. Your phone may ask you to allow unknown sources first. Needs Android 10 or newer.
-## Using Wayfinder
+## Install and update
 
-- Pick a folder to browse. Which folders Android hands over depends on Android.
-- Filter by name, sort by name or size, and see file counts with total size.
-- Open files in your other apps, share them, copy them out as new documents, or send ZIP files to Packrat.
+The easiest way is Wonderdesk Apphub: get it once from https://github.com/thoroftroy/App-Hub/releases, then install and update this app and the rest of the suite from there.
 
-There is no trash. Deleted means deleted.
+Or download the APK from this repository's Releases, open it, and allow installing from that source if your phone asks. Needs Android 10 or newer.
 
 ## Look and feel
 
-Open About in the app to change the theme or motion. Aqua is the default.
+Every Wonderdesk app follows the look you pick in Control Room (Aqua, Bliss, Dark Bliss or Super). You can give this app its own look in its Settings.
+
+## Privacy
+
+Everything stays on your phone. No accounts, ads or tracking.
