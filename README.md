@@ -1,6 +1,6 @@
 # Wayfinder for Android
 
-Browses and manages a folder you choose. By Rednave.
+Browses and manages a folder you choose.
 
 ## Easiest install and updates
 
