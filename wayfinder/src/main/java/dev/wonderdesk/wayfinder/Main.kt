@@ -180,7 +180,7 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                 }
             }
             Panel(title = "Protected and shared") {
-                ListRow("Safe folder", subtitle = "Encrypted, locked with your fingerprint or screen lock", icon = WonderIcons.Lock, tint = Color(0xFF8E44AD), chevron = true, onClick = { onTab("safe") })
+                ListRow("Safe folder", subtitle = "Encrypted files behind a password of their own", icon = WonderIcons.Lock, tint = Color(0xFF8E44AD), chevron = true, onClick = { onTab("safe") })
                 PanelDivider()
                 ListRow("Network", subtitle = if (ShareService.running) "Sharing on ${ShareService.address}" else "Windows, Mac and NAS shares, or share this phone over Wi-Fi", icon = WonderIcons.Hub, tint = Color(0xFF16A085), chevron = true, onClick = { onTab("network") })
             }
@@ -296,6 +296,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
     var dialog by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableStateOf<Pair<String, Progress?>?>(null) }
     var props by remember { mutableStateOf<List<File>?>(null) }
+    var safeAsk by remember { mutableStateOf<List<File>?>(null) }
     val toastRef = remember { mutableStateOf<(String) -> Unit>({}) }
     // Everything a row shows is read here, off the main thread, so scrolling never waits on the disk.
     LaunchedEffect(dir.path, category, sort, desc, hidden, refresh, tick) {
@@ -313,24 +314,17 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
         if (!searching || query.length < 2) { results = null; return@LaunchedEffect }
         kotlinx.coroutines.delay(250)
         results = emptyList()
-        Ops.cancel = false
         try {
             withContext(Dispatchers.IO) {
                 Listing.search(context, if (category != null) Storage.primary else dir, query, hidden) { batch -> scope.launch { results = (results.orEmpty() + batch).distinctBy { it.path } } }
             }
-        } finally { Ops.cancel = true }
+        } finally { Listing.searchCancel = true }
     }
     val shown = results ?: files.orEmpty()
     val selection = shown.filter { it.path in selected }.map { it.file }
-    fun runOp(label: String, work: suspend ((Progress) -> Unit) -> Unit) {
-        progress = label to null
-        scope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { work { pr -> scope.launch { progress = label to pr } } } }
-            progress = null; selected = emptySet(); tick++
-            r.onFailure { toastRef.value(if (it is Cancelled) "Cancelled" else it.message ?: "Something went wrong") }
-                .onSuccess { toastRef.value("$label done") }
-        }
-    }
+    // Work runs in the background (with a notification) so you can keep browsing.
+    fun runOp(label: String, work: ((Progress) -> Unit) -> Unit) { Jobs.enqueue(context, label) { job -> work { pr -> job.report(pr) } }; selected = emptySet() }
+    JobListener { j -> tick++; toastRef.value(when (j.state) { "done" -> "${j.label} done"; "cancelled" -> "${j.label} cancelled"; else -> j.error ?: "${j.label} didn't finish" }) }
     val inSelect = selected.isNotEmpty()
     if (dir.path != Storage.primary.path || category != null || inSelect || searching) androidx.activity.compose.BackHandler {
         when { inSelect -> selected = emptySet(); searching -> { searching = false; query = "" }; category != null -> onHome(); else -> dir.parentFile?.takeIf { it.canRead() }?.let(onNavigate) ?: onHome() }
@@ -360,7 +354,8 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
             WonderMenuItem("Compress to ZIP", WonderIcons.FolderZip) { dialog = "zip" },
             WonderMenuItem("Move to Safe folder", WonderIcons.Lock) {
                 val src = selection
-                (context as? android.app.Activity)?.let { a -> Safe.authenticate(a) { ok, err -> if (ok) runOp("Move to Safe folder") { rep -> Safe.add(context, src, rep) } else err?.let { toastRef.value(it) } } }
+                if (Safe.unlocked) Jobs.enqueue(context, "Move to Safe folder") { job -> Safe.add(context, src, job) }.also { selected = emptySet() }
+                else safeAsk = src
             },
             if (selection.size == 1 && selection[0].extension.equals("zip", true)) WonderMenuItem("Extract here", WonderIcons.Unarchive) {
                 val z = selection[0]; val out = Ops.uniqueName(z.parentFile ?: dir, z.nameWithoutExtension)
@@ -403,7 +398,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                             itemsIndexed(shown, key = { _, e -> e.path }) { i, e ->
                                 val sel = e.path in selected
                                 val sub = remember(e) {
-                                    (if (e.isDir) "${e.children} item${if (e.children == 1) "" else "s"}" else formatBytes(e.size)) + " · " + DateUtils.getRelativeTimeSpanString(e.modified) +
+                                    (if (e.isDir) "${e.children} item${if (e.children == 1) "" else "s"}" else formatBytes(e.size)) + " · " + dev.wonderdesk.shared.relativeTime(e.modified) +
                                         if (results != null || category != null) " · " + (e.file.parent ?: "").removePrefix(Storage.primary.path).ifBlank { "/" } else ""
                                 }
                                 ListRow(e.name, Modifier.panelItem(i, shown.size), subtitle = sub,
@@ -423,6 +418,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                         WButton("Download here", { val c = nc; netClip = null; runOp("Download") { rep -> downloadFromNet(c, dir, rep) } }, kind = ButtonKind.Primary)
                     }
                 }
+                JobsStrip(Modifier.align(Alignment.BottomCenter).padding(bottom = if (clip != null || netClip != null) 76.dp else 0.dp))
                 clip?.let { c ->
                     if (!inSelect && category == null) Row(Modifier.align(Alignment.BottomCenter).padding(16.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(p.panel)
                         .border(1.dp, p.panelBorder, RoundedCornerShape(14.dp)).padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -457,14 +453,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
             }
         }, confirmButton = { TextButton(onClick = { dialog = null }) { Text("Done") } })
     }
-    progress?.let { (label, pr) ->
-        WonderDialog(onDismissRequest = {}, title = { Text("$label…") }, text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                AquaProgress(pr?.let { it.done.toFloat() / it.total }, Modifier.fillMaxWidth())
-                Text(pr?.let { "${formatBytes(it.done)} of ${formatBytes(it.total)} · ${it.current}" } ?: "Preparing", style = MaterialTheme.typography.bodySmall, color = p.secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }, confirmButton = { TextButton(onClick = { Ops.cancel = true }) { Text("Cancel") } })
-    }
+    safeAsk?.let { src -> SafePasswordDialog(onDismiss = { safeAsk = null }) { safeAsk = null; Jobs.enqueue(context, "Move to Safe folder") { job -> Safe.add(context, src, job) }; selected = emptySet() } }
     props?.let { list -> PropertiesDialog(list) { props = null } }
 }
 

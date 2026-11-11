@@ -103,8 +103,9 @@ object Listing {
      * Searches names under [root], reporting batches as it goes so the first results show at once.
      * Uses the media index first for speed, then walks folders for everything else.
      */
+    @Volatile var searchCancel = false
     fun search(c: Context, root: File, query: String, hidden: Boolean, onBatch: (List<Entry>) -> Unit) {
-        Ops.cancel = false
+        searchCancel = false
         val q = query.lowercase()
         val seen = HashSet<String>()
         val batch = ArrayList<Entry>()
@@ -124,10 +125,10 @@ object Listing {
         flush()
         var count = seen.size
         fun walk(d: File, depth: Int) {
-            if (Ops.cancel || count >= 1000 || depth > 24) return
+            if (searchCancel || count >= 1000 || depth > 24) return
             val kids = d.listFiles() ?: return
             for (f in kids) {
-                if (Ops.cancel) return
+                if (searchCancel) return
                 if (!hidden && f.name.startsWith(".")) continue
                 if (f.name.lowercase().contains(q) && seen.add(f.path)) { batch += entry(f); count++; if (batch.size >= 25) flush() }
                 if (f.isDirectory && !(f.path.endsWith("/Android/data") || f.path.endsWith("/Android/obb"))) walk(f, depth + 1)

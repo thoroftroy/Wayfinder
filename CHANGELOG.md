@@ -1,5 +1,16 @@
 # Wayfinder changelog
 
+## v0.4.0
+
+- The Safe folder has its own password, separate from your screen lock and fingerprint, with a hint, a way to change the password, and a way to erase everything
+- Safe folder files use a new chunked format: huge files move in and out with real progress and can be cancelled straight away. Older Safe folders are upgraded automatically
+- Copy, move, delete, compress, extract and Safe folder jobs run in the background with a progress notification, time left and a working Cancel button; they keep going when you leave the app
+- Search can be stopped at any time
+- New Storage widget with shortcuts to Downloads, Camera, Documents and the Safe folder
+- Files changed a moment ago say “Just now” instead of “0 minutes ago”
+- If the app ever crashes or freezes, a report goes to Control Room so it can be shared and fixed
+- App icon art is larger and fills its tile without being cut off
+
 ## v0.3.1
 
 - Network: browse Windows, Mac, Linux and NAS shares (SMB 2/3), with passwords stored encrypted

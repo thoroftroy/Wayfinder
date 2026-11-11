@@ -206,14 +206,8 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
             .onSuccess { list -> items = list.sortedWith(compareByDescending<NetEntry> { it.isDir }.thenBy(Listing.NaturalOrder) { it.name }) }
             .onFailure { error = it.message ?: "Couldn't open the share" }
     }
-    fun runOp(label: String, work: ((Progress) -> Unit) -> Unit) {
-        progress = label to null
-        scope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { work { pr -> scope.launch { progress = label to pr } } } }
-            progress = null; selected = emptySet(); tick++
-            r.onFailure { toastRef.value(if (it is Cancelled) "Cancelled" else it.message ?: "Something went wrong") }.onSuccess { toastRef.value("$label done") }
-        }
-    }
+    fun runOp(label: String, work: ((Progress) -> Unit) -> Unit) { Jobs.enqueue(context, label) { job -> work { pr -> job.report(pr) } }; selected = emptySet() }
+    JobListener { j -> tick++; if (!j.label.startsWith("Opening")) toastRef.value(when (j.state) { "done" -> "${j.label} done"; "cancelled" -> "${j.label} cancelled"; else -> j.error ?: "${j.label} didn't finish" }) }
     val selection = items.orEmpty().filter { it.path in selected }
     BackHandler { when { selected.isNotEmpty() -> selected = emptySet(); path.isNotEmpty() -> path = path.substringBeforeLast('/', ""); else -> onClose() } }
     WonderApp(appName = "Wayfinder", about = NET_ABOUT, title = if (selected.isNotEmpty()) "${selected.size} selected" else path.substringAfterLast('/').ifEmpty { server.label },
@@ -239,7 +233,7 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
                     itemsIndexed(list, key = { _, e -> e.path }) { i, e ->
                         val sel = e.path in selected
                         val (icon, tint) = kindIcon(e.kind)
-                        ListRow(e.name, Modifier.panelItem(i, list.size), subtitle = (if (e.isDir) "Folder" else formatBytes(e.size)) + " · " + DateUtils.getRelativeTimeSpanString(e.modified),
+                        ListRow(e.name, Modifier.panelItem(i, list.size), subtitle = (if (e.isDir) "Folder" else formatBytes(e.size)) + " · " + dev.wonderdesk.shared.relativeTime(e.modified),
                             leading = { IconTile(icon, tint, 40.dp) }, selected = sel,
                             trailing = if (selected.isNotEmpty()) ({ Checkbox(sel, { on -> selected = if (on) selected + e.path else selected - e.path }) }) else null,
                             onLongClick = { selected = selected + e.path },
@@ -257,6 +251,7 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
                     }
                 }
             }
+            JobsStrip(Modifier.align(Alignment.BottomCenter).padding(bottom = if (clip != null) 76.dp else 0.dp))
             clip?.let { c ->
                 if (selected.isEmpty()) Row(Modifier.align(Alignment.BottomCenter).padding(16.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(p.panel)
                     .border(1.dp, p.panelBorder, RoundedCornerShape(14.dp)).padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -280,77 +275,7 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
         "delete" -> ConfirmDialog("Delete ${selection.size} item${if (selection.size == 1) "" else "s"} from ${server.label}?", "Network shares have no recycle bin, so this can't be undone.", "Delete",
             onConfirm = { val src = selection; runOp("Delete") { SmbSession.open(server).use { s -> src.forEach { s.delete(it) } } } }, onDismiss = { dialog = null }, danger = true)
     }
-    progress?.let { (label, pr) ->
-        WonderDialog(onDismissRequest = {}, title = { Text("$label…") }, text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                AquaProgress(pr?.let { it.done.toFloat() / it.total }, Modifier.fillMaxWidth())
-                Text(pr?.let { "${formatBytes(it.done)} of ${formatBytes(it.total)} · ${it.current}" } ?: "Connecting", style = MaterialTheme.typography.bodySmall, color = p.secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }, confirmButton = { TextButton(onClick = { Ops.cancel = true }) { Text("Cancel") } })
-    }
 }
-
-/* ---------------------------------------------------- safe folder ---------------------------------------------- */
-
-@Composable
-fun SafeScreen(onTab: (String) -> Unit) {
-    val context = LocalContext.current
-    val activity = context as android.app.Activity
-    val p = wonderPalette()
-    val scope = rememberCoroutineScope()
-    var unlocked by remember { mutableStateOf(Safe.unlocked) }
-    var items by remember { mutableStateOf<List<Safe.Item>?>(null) }
-    var tick by remember { mutableIntStateOf(0) }
-    var menuFor by remember { mutableStateOf<Safe.Item?>(null) }
-    var renaming by remember { mutableStateOf<Safe.Item?>(null) }
-    var deleting by remember { mutableStateOf<Safe.Item?>(null) }
-    var busy by remember { mutableStateOf<String?>(null) }
-    var authError by remember { mutableStateOf<String?>(null) }
-    val toastRef = remember { mutableStateOf<(String) -> Unit>({}) }
-    val resumed = rememberIsResumed()
-    LaunchedEffect(resumed) { if (!resumed) { Safe.wipeTemp(context) } else if (!Safe.unlocked) unlocked = false }
-    LaunchedEffect(unlocked, tick) { if (unlocked) items = withContext(Dispatchers.IO) { Safe.items(context) } }
-    fun unlock() = Safe.authenticate(activity) { ok, err -> unlocked = ok; authError = err }
-    LaunchedEffect(Unit) { if (!unlocked) unlock() }
-    fun work(label: String, block: () -> Unit) { busy = label; scope.launch { val r = withContext(Dispatchers.IO) { runCatching(block) }; busy = null; tick++; r.onFailure { toastRef.value(it.message ?: "Something went wrong") } } }
-    WonderApp(appName = "Wayfinder", about = ABOUT_SAFE, tabs = TABS, selectedTab = "home", onTab = onTab, title = "Safe folder", onBack = { Safe.lock(); onTab("home") },
-        actions = { if (unlocked) ToolbarButton(WonderIcons.Lock, "Lock", { Safe.lock(); Safe.wipeTemp(context); unlocked = false }) }) {
-        toastRef.value = LocalToast.current
-        when {
-            !unlocked -> EmptyState("Safe folder is locked", authError ?: "Files here are encrypted and only open after you unlock with your fingerprint, face or screen lock.", icon = WonderIcons.Lock,
-                action = { WButton("Unlock", { unlock() }, icon = WonderIcons.LockOpen, kind = ButtonKind.Primary) })
-            items == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
-            items!!.isEmpty() -> EmptyState("Nothing in the Safe folder", "In Browse, select files, open the ⋮ menu and choose “Move to Safe folder”. They're encrypted and hidden from every other app.", icon = WonderIcons.Shield)
-            else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
-                item { Text("${items!!.size} item${if (items!!.size == 1) "" else "s"} · ${formatBytes(items!!.sumOf { it.size })} · encrypted", Modifier.padding(6.dp, 0.dp, 6.dp, 10.dp), style = MaterialTheme.typography.bodySmall, color = p.secondaryText) }
-                val list = items!!
-                itemsIndexed(list, key = { _, it -> it.id }) { i, it ->
-                    val (icon, tint) = kindIcon(kindOf(it.name))
-                    Box {
-                        ListRow(it.name, Modifier.panelItem(i, list.size), subtitle = formatBytes(it.size) + " · added " + relativeTime(it.added).replaceFirstChar { c -> c.lowercase() }, leading = { IconTile(icon, tint, 40.dp) },
-                            onLongClick = { menuFor = it },
-                            onClick = { val item = it; work("Opening") { val f = Safe.openTemp(context, item); scope.launch { openFile(context, f) { m -> toastRef.value(m) } } } })
-                        DropdownMenu(menuFor == it, { menuFor = null }) {
-                            DropdownMenuItem({ Text("Move out of Safe folder") }, { val item = it; menuFor = null; work("Restoring") { val f = Safe.restore(context, item); scope.launch { toastRef.value("Restored to ${f.parentFile?.name}") } } }, leadingIcon = { Icon(WonderIcons.LockOpen, null) })
-                            DropdownMenuItem({ Text("Rename") }, { renaming = it; menuFor = null }, leadingIcon = { Icon(WonderIcons.DriveFileRenameOutline, null) })
-                            DropdownMenuItem({ Text("Share") }, { val item = it; menuFor = null; work("Preparing") {
-                                val f = Safe.openTemp(context, item)
-                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", f)
-                                scope.launch { context.launchSafely(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(f.mime()).putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share")) {} }
-                            } }, leadingIcon = { Icon(WonderIcons.Share, null) })
-                            DropdownMenuItem({ Text("Delete forever", color = p.danger) }, { deleting = it; menuFor = null }, leadingIcon = { Icon(WonderIcons.Delete, null, tint = p.danger) })
-                        }
-                    }
-                }
-            }
-        }
-    }
-    renaming?.let { it -> InputDialog("Rename", "Name", initial = it.name, onDismiss = { renaming = null }) { n -> val item = it; work("Renaming") { Safe.rename(context, item, n) } } }
-    deleting?.let { it -> ConfirmDialog("Delete “${it.name}” forever?", "Items in the Safe folder don't go to the recycle bin.", "Delete", onConfirm = { val item = it; work("Deleting") { Safe.delete(context, item) } }, onDismiss = { deleting = null }, danger = true) }
-    busy?.let { WonderDialog(onDismissRequest = {}, title = { Text("$it…") }, text = { LinearProgressIndicator(Modifier.fillMaxWidth()) }, confirmButton = {}) }
-}
-
-private const val ABOUT_SAFE = "The Safe folder encrypts files with a key kept in your phone's secure hardware. Only Wayfinder can read them, and only after you unlock."
 
 fun folderLabel(path: String): String = when {
     path == Storage.primary.path -> "Internal storage"

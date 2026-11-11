@@ -11,7 +11,9 @@ A complete file manager for your phone and SD cards.
 - Files open in the right Wonderdesk app: archives in Packrat, PDFs in Pages, photos in Memories, videos in Cinema, text in Scribble. APKs open the installer.
 - **Network:** open Windows, Mac, Linux and NAS shares (SMB). Copy files in Browse and tap *Upload here* on a share, or select files on a share and *Download here* in any folder.
 - **Share over Wi-Fi:** turn on sharing and anyone on your network can open a web page to browse, download and upload, or connect with an FTP app. Optional password and read-only mode; it switches itself off when nobody is using it.
-- **Safe folder:** move private files into an encrypted folder that only opens with your fingerprint, face or screen lock. No other app can see them.
+- **Safe folder:** move private files into an encrypted folder with its own password, separate from your screen lock. No other app can see them.
+- Copying, moving, compressing and Safe folder jobs run in the background with a progress notification and a Cancel button.
+- A home-screen Storage widget with shortcuts to your main folders.
 - **USB drives and SD cards** show up as soon as you plug them in, with an Eject shortcut.
 
 ## Install and update
