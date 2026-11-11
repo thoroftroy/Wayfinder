@@ -139,14 +139,16 @@ fun SafeScreen(onTab: (String) -> Unit) {
         menu = if (Safe.isSetUp(context)) listOf(WonderMenuItem("Change password", WonderIcons.Key) { changing = true }, WonderMenuItem("Erase Safe folder", WonderIcons.DeleteSweep, danger = true) { erasing = true }) else emptyList()) {
         toastRef.value = LocalToast.current
         Box(Modifier.fillMaxSize()) {
+            // Read once: the list can be cleared (when the Safe folder locks) while this screen is drawing.
+            val current = items
             when {
                 !unlocked -> EmptyState(if (Safe.isSetUp(context)) "Safe folder is locked" else "Your private, encrypted folder",
                     if (Safe.isSetUp(context)) "Enter the Safe folder password to see what's inside." else "Files you move here are encrypted with their own password and hidden from every other app. Choose a password to start.",
                     icon = WonderIcons.Lock, action = { WButton(if (Safe.isSetUp(context)) "Unlock" else "Set a password", { asking = true }, icon = WonderIcons.LockOpen, kind = ButtonKind.Primary) })
-                items == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
-                items!!.isEmpty() -> EmptyState("Nothing in the Safe folder", "In Browse, select files, open the ⋮ menu and choose “Move to Safe folder”. They're encrypted and hidden from every other app.", icon = WonderIcons.Shield)
+                current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
+                current.isEmpty() -> EmptyState("Nothing in the Safe folder", "In Browse, select files, open the ⋮ menu and choose “Move to Safe folder”. They're encrypted and hidden from every other app.", icon = WonderIcons.Shield)
                 else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 100.dp)) {
-                    val list = items!!
+                    val list = current
                     item { Text("${list.size} item${if (list.size == 1) "" else "s"} · ${formatBytes(list.sumOf { it.size })} · encrypted", Modifier.padding(6.dp, 0.dp, 6.dp, 10.dp), style = MaterialTheme.typography.bodySmall, color = p.secondaryText) }
                     itemsIndexed(list, key = { _, it -> it.id }) { i, it ->
                         val (icon, tint) = kindIcon(kindOf(it.name))

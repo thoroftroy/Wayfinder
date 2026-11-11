@@ -224,12 +224,13 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
         menu = if (selected.size == 1) listOf(WonderMenuItem("Rename", WonderIcons.DriveFileRenameOutline) { dialog = "rename" }) else emptyList()) {
         toastRef.value = LocalToast.current
         Box(Modifier.fillMaxSize()) {
+            val current = items; val err = error
             when {
-                error != null -> EmptyState("Couldn't open this share", error!!, icon = WonderIcons.Error, action = { WButton("Try again", { tick++ }, icon = WonderIcons.Refresh) })
-                items == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
-                items!!.isEmpty() -> EmptyState("This folder is empty", "Copy files in Browse, then come here and tap Upload here.", icon = WonderIcons.FolderOpen)
+                err != null -> EmptyState("Couldn't open this share", err, icon = WonderIcons.Error, action = { WButton("Try again", { tick++ }, icon = WonderIcons.Refresh) })
+                current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
+                current.isEmpty() -> EmptyState("This folder is empty", "Copy files in Browse, then come here and tap Upload here.", icon = WonderIcons.FolderOpen)
                 else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp)) {
-                    val list = items!!
+                    val list = current
                     itemsIndexed(list, key = { _, e -> e.path }) { i, e ->
                         val sel = e.path in selected
                         val (icon, tint) = kindIcon(e.kind)
