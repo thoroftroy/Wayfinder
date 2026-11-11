@@ -13,7 +13,7 @@ A complete file manager for your phone and SD cards.
 - **Share over Wi-Fi:** turn on sharing and anyone on your network can open a web page to browse, download and upload, or connect with an FTP app. Optional password and read-only mode; it switches itself off when nobody is using it.
 - **Safe folder:** move private files into an encrypted folder with its own password, separate from your screen lock. No other app can see them.
 - Copying, moving, compressing and Safe folder jobs run in the background with a progress notification and a Cancel button.
-- A home-screen Storage widget with shortcuts to your main folders.
+- A home-screen Storage widget with the four folder shortcuts you choose.
 - **USB drives and SD cards** show up as soon as you plug them in, with an Eject shortcut.
 
 ## Install and update

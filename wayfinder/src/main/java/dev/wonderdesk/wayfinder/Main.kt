@@ -118,8 +118,9 @@ fun WayfinderApp() {
             if (f.isDirectory) path = f.path else if (f.exists()) { path = f.parent ?: path; focusName = f.name }
             tab = "browse"; category = null
         }
+        i?.getStringExtra("tab")?.let { tab = it }
+        (context as ComponentActivity).intent = Intent()
     }
-    LaunchedEffect(Unit) { (context as ComponentActivity).intent?.getStringExtra("tab")?.let { tab = it } }
     when {
         tab == "network" -> NetworkScreen(onTab = { tab = it }, onShowLocal = { path = it.path; tab = "browse"; category = null })
         tab == "safe" -> SafeScreen(onTab = { tab = it })
@@ -381,7 +382,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                     files == null && results == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
                     shown.isEmpty() -> EmptyState(if (results != null) "Nothing found" else "This folder is empty", if (results != null) "No names contain “$query”." else "Use + to make a folder, or paste files here.", icon = WonderIcons.FolderOpen)
                     grid -> LazyVerticalGrid(GridCells.Adaptive(104.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
-                        items(shown, key = { it.path }) { e ->
+                        items(shown.distinctBy { it.path }, key = { it.path }) { e ->
                             val sel = e.path in selected
                             Column(Modifier.padding(4.dp).clip(RoundedCornerShape(10.dp)).background(if (sel) p.selection.copy(alpha = .2f) else Color.Transparent)
                                 .combinedClickable(onClick = { if (inSelect) selected = if (sel) selected - e.path else selected + e.path else if (e.isDir) onNavigate(e.file) else openFile(context, e.file) { toastRef.value(it) } },
@@ -395,7 +396,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                         val listState = androidx.compose.foundation.lazy.rememberLazyListState()
                         LaunchedEffect(focusName, shown.size) { focusName?.let { n -> shown.indexOfFirst { it.name == n }.takeIf { it >= 0 }?.let { listState.scrollToItem(it); selected = setOf(shown[it].path) } } }
                         LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp)) {
-                            itemsIndexed(shown, key = { _, e -> e.path }) { i, e ->
+                            itemsIndexed(shown.distinctBy { it.path }, key = { _, e -> e.path }) { i, e ->
                                 val sel = e.path in selected
                                 val sub = remember(e) {
                                     (if (e.isDir) "${e.children} item${if (e.children == 1) "" else "s"}" else formatBytes(e.size)) + " · " + dev.wonderdesk.shared.relativeTime(e.modified) +

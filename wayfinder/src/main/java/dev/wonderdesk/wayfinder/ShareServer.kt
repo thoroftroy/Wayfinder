@@ -109,7 +109,7 @@ class ShareService : Service() {
 
     private fun idleWatch() {
         while (running) {
-            Thread.sleep(30_000)
+            try { Thread.sleep(30_000) } catch (_: InterruptedException) { return }
             if (cfg.idleMinutes > 0 && active.get() == 0 && System.currentTimeMillis() - lastActivity > cfg.idleMinutes * 60_000L) { stopSelf(); return }
         }
     }

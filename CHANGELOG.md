@@ -1,5 +1,14 @@
 # Wayfinder changelog
 
+## v0.5.0
+
+- Fixed a crash when Wi-Fi sharing switched itself off
+- Storage widget settings: pick any four shortcuts (Downloads, Camera, Pictures, Documents, Music, Movies, Safe folder, Network, Recycle bin, Internal storage) and the background
+- Widget shortcuts now work when Wayfinder is already open
+- Works properly in landscape: tabs move to a rail at the side so the content keeps its height, and screens that ran out of room now scroll
+- If the app ever crashes it says so next time it opens and offers to send a report (only the error, app version and phone model, with file names and links removed). Turn on automatic sending in Control Room › Wonderdesk
+- Lists can no longer crash when two items share a name
+
 ## v0.4.0
 
 - The Safe folder has its own password, separate from your screen lock and fingerprint, with a hint, a way to change the password, and a way to erase everything
