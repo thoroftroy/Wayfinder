@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package dev.wonderdesk.wayfinder
 
 import android.content.Context
@@ -52,6 +53,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import dev.wonderdesk.shared.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -121,6 +124,7 @@ fun WayfinderApp() {
         i?.getStringExtra("tab")?.let { tab = it }
         (context as ComponentActivity).intent = Intent()
     }
+    Preview.current?.let { r -> MediaViewer(r) { Preview.current = null }; return }
     when {
         tab == "network" -> NetworkScreen(onTab = { tab = it }, onShowLocal = { path = it.path; tab = "browse"; category = null })
         tab == "safe" -> SafeScreen(onTab = { tab = it })
@@ -289,6 +293,18 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
     var grid by rememberSaveable { mutableStateOf(prefs.getBoolean("grid", false)) }
     var hidden by rememberSaveable { mutableStateOf(prefs.getBoolean("hidden", false)) }
     var files by remember { mutableStateOf<List<Entry>?>(null) }
+    var listDir by remember { mutableStateOf("") }
+    // Going into a folder slides in from the right; going back up, from the left.
+    val slide = remember { androidx.compose.animation.core.Animatable(0f) }
+    var lastDir by remember { mutableStateOf(dir.path) }
+    val motion = LocalMotion.current
+    LaunchedEffect(listDir) {
+        if (listDir.isEmpty() || listDir == lastDir || motion == WonderMotion.OFF) { lastDir = listDir; return@LaunchedEffect }
+        val deeper = listDir.startsWith(lastDir.trimEnd('/') + "/")
+        lastDir = listDir
+        slide.snapTo(if (deeper) 1f else -1f)
+        slide.animateTo(0f, androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    }
     var selected by remember(dir.path, category) { mutableStateOf(setOf<String>()) }
     var tick by remember { mutableIntStateOf(0) }
     var searching by remember { mutableStateOf(false) }
@@ -301,15 +317,18 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
     val toastRef = remember { mutableStateOf<(String) -> Unit>({}) }
     // Everything a row shows is read here, off the main thread, so scrolling never waits on the disk.
     LaunchedEffect(dir.path, category, sort, desc, hidden, refresh, tick) {
-        val keepOld = files != null && tick > 0
-        if (!keepOld) files = null
-        files = withContext(Dispatchers.IO) {
+        // The old list stays up while the next folder is read; the spinner only appears if that's slow.
+        val spinner = launch { delay(150); files = null }
+        val loaded = withContext(Dispatchers.IO) {
             if (category != null) {
                 val c = CATEGORIES.first { it.first == category }
                 val list = Listing.category(context, c.second, c.third)
                 if (sort == SortBy.Date && desc || sort == SortBy.Name && !desc && c.third != null) list else Listing.sort(list, sort.name, desc, foldersFirst = false)
             } else Listing.sort(Listing.list(dir, hidden), sort.name, desc)
         }
+        spinner.cancel()
+        files = loaded
+        listDir = dir.path
     }
     LaunchedEffect(query, searching) {
         if (!searching || query.length < 2) { results = null; return@LaunchedEffect }
@@ -377,7 +396,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
         Column(Modifier.fillMaxSize()) {
             if (searching) SearchField(query, { query = it }, if (category != null) "Search all storage" else "Search in ${dir.name.ifBlank { "storage" }} and below", Modifier.padding(16.dp, 10.dp, 16.dp, 0.dp))
             if (category == null && !searching) Breadcrumbs(dir, onNavigate)
-            Box(Modifier.weight(1f)) {
+            Box(Modifier.weight(1f).graphicsLayer { translationX = slide.value * size.width * .18f; alpha = 1f - kotlin.math.abs(slide.value) * .6f }) {
                 when {
                     files == null && results == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
                     shown.isEmpty() -> EmptyState(if (results != null) "Nothing found" else "This folder is empty", if (results != null) "No names contain “$query”." else "Use + to make a folder, or paste files here.", icon = WonderIcons.FolderOpen)
@@ -396,7 +415,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                         val listState = androidx.compose.foundation.lazy.rememberLazyListState()
                         LaunchedEffect(focusName, shown.size) { focusName?.let { n -> shown.indexOfFirst { it.name == n }.takeIf { it >= 0 }?.let { listState.scrollToItem(it); selected = setOf(shown[it].path) } } }
                         LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp)) {
-                            itemsIndexed(shown.distinctBy { it.path }, key = { _, e -> e.path }) { i, e ->
+                            itemsIndexed(shown.distinctBy { it.path }, key = { _, e -> e.path }) { i, e -> Box(Modifier.animateItemPlacement()) {
                                 val sel = e.path in selected
                                 val sub = remember(e) {
                                     (if (e.isDir) "${e.children} item${if (e.children == 1) "" else "s"}" else formatBytes(e.size)) + " · " + dev.wonderdesk.shared.relativeTime(e.modified) +
@@ -407,7 +426,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                                     trailing = if (inSelect) ({ Checkbox(sel, { on -> selected = if (on) selected + e.path else selected - e.path }) }) else null,
                                     onLongClick = { selected = selected + e.path },
                                     onClick = { if (inSelect) selected = if (sel) selected - e.path else selected + e.path else if (e.isDir) onNavigate(e.file) else openFile(context, e.file) { toastRef.value(it) } })
-                            }
+                            }}
                         }
                     }
                 }
@@ -522,6 +541,11 @@ fun openFile(context: Context, f: File, report: (String) -> Unit) {
     if (preferred != null) {
         val direct = Intent(base).setPackage(preferred)
         if (context.packageManager.queryIntentActivities(direct, 0).isNotEmpty()) { context.launchSafely(direct, report); return }
+    }
+    // No Wonderdesk app for it: photos, videos, music, text and PDFs open right here, with the rest of the folder to swipe through.
+    if (Preview.canShow(f)) {
+        val siblings = f.parentFile?.listFiles()?.filter { it.isFile && it.kind() == f.kind() }?.sortedBy { it.name.lowercase() }.orEmpty()
+        Preview.show(siblings.ifEmpty { listOf(f) }, siblings.indexOf(f)); return
     }
     if (f.kind() == Kind.Archive && f.extension.equals("zip", true)) { context.launchSafely(Intent(base).setDataAndType(uri, "application/zip"), report); return }
     context.launchSafely(Intent.createChooser(base, "Open ${f.name} with"), report)

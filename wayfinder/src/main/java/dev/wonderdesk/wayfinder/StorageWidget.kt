@@ -34,9 +34,10 @@ class StorageWidget : AppWidgetProvider() {
         val DEFAULT = listOf("dl", "cam", "docs", "safe")
         private fun dir(d: String) = Environment.getExternalStoragePublicDirectory(d).path
 
-        fun build(c: Context, id: Int): RemoteViews {
+        fun build(c: Context, id: Int): RemoteViews = dev.wonderdesk.shared.responsiveWidget(R.layout.widget_storage_small, null, R.layout.widget_storage) { fill(c, id, it) }
+        private fun fill(c: Context, id: Int, layout: Int): RemoteViews {
             val s = WidgetPrefs(c, id)
-            val v = RemoteViews(c.packageName, R.layout.widget_storage)
+            val v = RemoteViews(c.packageName, layout)
             val look = runCatching { WidgetLook.valueOf(s.str("look", "GLASS")) }.getOrDefault(WidgetLook.GLASS)
             v.applyLook(look, R.id.w_root, Triple(R.drawable.wd_widget_bg, R.drawable.wd_widget_bg_dark, R.drawable.wd_widget_bg_clear), listOf(R.id.w_label), listOf(R.id.w_free))
             val st = StatFs(Environment.getExternalStorageDirectory().path)

@@ -133,7 +133,7 @@ fun SafeScreen(onTab: (String) -> Unit) {
     LaunchedEffect(resumed) { if (!resumed) Safe.wipeTemp(context) else if (!Safe.unlocked) { unlocked = false; items = null } }
     LaunchedEffect(unlocked, tick) { if (unlocked) items = withContext(Dispatchers.IO) { runCatching { Safe.items(context) }.getOrDefault(emptyList()) } }
     JobListener { j -> tick++; if (j.state == "failed") toastRef.value(j.error ?: "Something went wrong") else if (j.state == "done" && j.label.startsWith("Move out")) toastRef.value("Moved out of the Safe folder") }
-    fun open(item: Safe.Item) = Jobs.enqueue(context, "Opening ${item.name}") { _ -> val f = Safe.openTemp(context, item); scope.launch { openFile(context, f) { m -> toastRef.value(m) } } }
+    fun open(item: Safe.Item) = Jobs.enqueue(context, "Opening ${item.name}") { _ -> val f = Safe.openTemp(context, item); scope.launch { if (Preview.canShow(f)) Preview.show(listOf(f), 0, private = true) else toastRef.value("No preview for this kind of file. Move it out of the Safe folder to open it in another app") } }
     WonderApp(appName = "Wayfinder", about = ABOUT_SAFE, tabs = TABS, selectedTab = "home", onTab = onTab, title = "Safe folder", onBack = { Safe.lock(); onTab("home") },
         actions = { if (unlocked) ToolbarButton(WonderIcons.Lock, "Lock", { Safe.lock(); Safe.wipeTemp(context); unlocked = false; items = null }) },
         menu = if (Safe.isSetUp(context)) listOf(WonderMenuItem("Change password", WonderIcons.Key) { changing = true }, WonderMenuItem("Erase Safe folder", WonderIcons.DeleteSweep, danger = true) { erasing = true }) else emptyList()) {
