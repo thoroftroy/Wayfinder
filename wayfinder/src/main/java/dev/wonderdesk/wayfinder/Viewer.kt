@@ -26,6 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -64,47 +67,43 @@ object Preview {
 fun MediaViewer(req: Preview.Request, onClose: () -> Unit) {
     val context = LocalContext.current
     val files = req.files
-    val pager = rememberPagerState(files.indexOfFirst { true }.let { req.start.coerceIn(0, (files.size - 1).coerceAtLeast(0)) }) { files.size }
+    val pager = rememberPagerState(req.start.coerceIn(0, (files.size - 1).coerceAtLeast(0))) { files.size }
     var chrome by remember { mutableStateOf(true) }
+    var fadeOut by remember { mutableFloatStateOf(1f) }
     val fade = remember { Animatable(0f) }
     LaunchedEffect(Unit) { fade.animateTo(1f, tween(180)) }
     BackHandler { onClose() }
     WonderKitTheme {
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }.background(Color(0xFF0B0E12))) {
+        val c = rememberPlayerChrome()
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }.viewerBackdrop(c, fadeOut)) {
             HorizontalPager(pager, Modifier.fillMaxSize(), beyondBoundsPageCount = 1, key = { files[it].path }) { i ->
                 val f = files[i]
                 when (f.kind()) {
-                    Kind.Image -> ZoomImage(f, onTap = { chrome = !chrome })
-                    Kind.Video, Kind.Audio -> Player(f, active = pager.currentPage == i)
+                    Kind.Image -> ZoomImage(f, onTap = { chrome = !chrome }, onDismiss = onClose, onFade = { fadeOut = 1f - it * .85f; if (it > .05f) chrome = false })
+                    Kind.Video, Kind.Audio -> WonderVideo(android.net.Uri.fromFile(f), active = pager.currentPage == i && !pager.isScrollInProgress, controls = chrome,
+                        onToggleControls = { chrome = it }, audioOnly = f.kind() == Kind.Audio)
                     Kind.Pdf -> PdfPages(f)
                     Kind.Text, Kind.Code -> TextPage(f)
                     else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        EmptyState("No preview for this file", if (req.private) "Move it out of the Safe folder to open it in another app." else "Open it with another app from the ⋮ menu in Browse.", icon = WonderIcons.InsertDriveFile)
+                        Text(if (req.private) "No preview for this file. Move it out of the Safe folder to open it in another app." else "No preview for this file. Open it with another app from the ⋮ menu in Browse.",
+                            Modifier.padding(24.dp).mediaGlass(c).padding(18.dp), color = c.ink, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
             }
-            if (chrome) {
+            androidx.compose.animation.AnimatedVisibility(chrome, Modifier.align(Alignment.TopCenter), enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
                 val f = files.getOrNull(pager.currentPage)
-                Row(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent))).statusBarsPadding().padding(4.dp, 4.dp, 12.dp, 16.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onClose) { Icon(WonderIcons.ArrowBack, "Back", tint = Color.White) }
-                    Column(Modifier.weight(1f)) {
-                        Text(f?.name.orEmpty(), color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(listOfNotNull(f?.let { formatBytes(it.length()) }, if (files.size > 1) "${pager.currentPage + 1} of ${files.size}" else null, if (req.private) "Safe folder" else null).joinToString(" · "),
-                            color = Color.White.copy(alpha = .7f), style = MaterialTheme.typography.labelSmall)
-                    }
-                    if (!req.private && f != null) IconButton(onClick = { context.share(androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", f), f.mime()) {} }) {
-                        Icon(WonderIcons.Share, "Share", tint = Color.White)
-                    }
+                ViewerTopBar(f?.name.orEmpty(), listOfNotNull(f?.let { formatBytes(it.length()) }, if (files.size > 1) "${pager.currentPage + 1} of ${files.size}" else null, if (req.private) "Safe folder" else null).joinToString(" · "),
+                    onBack = onClose) {
+                    if (!req.private && f != null) HudButton(WonderIcons.Share, "Share", c, 44.dp) { context.share(androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", f), f.mime()) {} }
                 }
             }
         }
     }
 }
 
-/** Downsampled to the screen, then pinch, drag and double-tap to zoom. */
+/** Downsampled to the screen, then pinch, drag and double-tap to zoom; swipe up or down to close. */
 @Composable
-private fun ZoomImage(f: File, onTap: () -> Unit) {
+private fun ZoomImage(f: File, onTap: () -> Unit, onDismiss: () -> Unit, onFade: (Float) -> Unit) {
     val context = LocalContext.current
     val screen = context.resources.displayMetrics.let { maxOf(it.widthPixels, it.heightPixels) }
     val bmp by produceState<Bitmap?>(null, f) {
@@ -118,45 +117,14 @@ private fun ZoomImage(f: File, onTap: () -> Unit) {
             }.getOrNull()
         }
     }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    val zoomScope = rememberCoroutineScope()
-    var boxSize by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
-    // Keeps the picture on screen however far you pan.
-    fun clamp(o: Offset, s: Float) = Offset(o.x.coerceIn(-(s - 1) * boxSize.width / 2, (s - 1) * boxSize.width / 2), o.y.coerceIn(-(s - 1) * boxSize.height / 2, (s - 1) * boxSize.height / 2))
-    fun zoomTo(ts: Float, to: Offset) { val fs = scale; val fo = offset; val tt = clamp(to, ts)
-        zoomScope.launch { androidx.compose.animation.core.animate(0f, 1f, animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { t, _ -> scale = fs + (ts - fs) * t; offset = fo + (tt - fo) * t } } }
     val img = remember(bmp) { bmp?.asImageBitmap() }
-    Box(Modifier.fillMaxSize().onSizeChanged { boxSize = androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat()) }
-        .pointerInput(f) { detectTapGestures(onTap = { onTap() }, onDoubleTap = { p -> if (scale > 1.1f) zoomTo(1f, Offset.Zero) else zoomTo(2.5f, (Offset(size.width / 2f, size.height / 2f) - p) * 1.5f) }) }
-        // At normal size, one-finger drags go to the pager (swipe to the next photo); pinch zooms.
-        .then(if (scale > 1.01f) Modifier.pointerInput(f) { detectTransformGestures { _, pan, zoom, _ -> scale = (scale * zoom).coerceIn(1f, 6f); offset = if (scale <= 1.01f) Offset.Zero else clamp(offset + pan, scale) } }
-              else Modifier.pointerInput(f) { detectTransformGestures(panZoomLock = true) { _, _, zoom, _ -> if (zoom != 1f) scale = (scale * zoom).coerceIn(1f, 6f) } }), contentAlignment = Alignment.Center) {
-        if (img == null) CircularProgressIndicator(color = Color.White)
-        else Image(img, f.name, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y }, contentScale = ContentScale.Fit)
-    }
-}
-
-/** Video and audio with the standard player controls; pauses when you swipe away. */
-@Composable
-private fun Player(f: File, active: Boolean) {
-    val context = LocalContext.current
-    val player = remember(f) { ExoPlayer.Builder(context).build().apply { setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(f))); prepare() } }
-    DisposableEffect(player) { onDispose { player.release() } }
-    LaunchedEffect(active) { player.playWhenReady = active; if (!active) player.pause() }
-    val resumed = rememberIsResumed()
-    LaunchedEffect(resumed) { if (!resumed) player.pause() }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        AndroidView({ c -> PlayerView(c).apply { this.player = player; setShowNextButton(false); setShowPreviousButton(false); setBackgroundColor(android.graphics.Color.TRANSPARENT) } },
-            Modifier.fillMaxSize().navigationBarsPadding())
-        if (f.kind() == Kind.Audio) Icon(WonderIcons.MusicNote, null, Modifier.size(120.dp).align(Alignment.Center), tint = Color.White.copy(alpha = .25f))
-    }
+    ZoomableImage(img, f.name, onTap = onTap, onDismiss = onDismiss, onDismissProgress = onFade)
 }
 
 @Composable
 private fun TextPage(f: File) {
     val text by produceState<String?>(null, f) { value = withContext(Dispatchers.IO) { runCatching { f.bufferedReader().use { r -> val b = CharArray(400_000); val n = r.read(b); if (n <= 0) "" else String(b, 0, n) } }.getOrDefault("Couldn't read this file") } }
-    Box(Modifier.fillMaxSize().statusBarsPadding().padding(top = 56.dp).background(Color(0xFF14181E))) {
+    Box(Modifier.fillMaxSize().statusBarsPadding().padding(top = 72.dp, start = 10.dp, end = 10.dp, bottom = 10.dp).mediaGlass(rememberPlayerChrome())) {
         SelectionContainer {
             Text(text ?: "", Modifier.fillMaxSize().verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding(),
                 color = Color(0xFFE8EDF2), fontFamily = if (f.kind() == Kind.Code) FontFamily.Monospace else FontFamily.Default, fontSize = 14.sp)
@@ -171,7 +139,7 @@ private fun PdfPages(f: File) {
     val renderer = remember(f) { runCatching { PdfRenderer(ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)) }.getOrNull() }
     DisposableEffect(renderer) { onDispose { runCatching { renderer?.close() } } }
     if (renderer == null) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Couldn't open this PDF", color = Color.White) }; return }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 80.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = rememberTabTopList(), contentPadding = PaddingValues(top = 96.dp, bottom = 24.dp, start = 10.dp, end = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(renderer.pageCount) { i ->
             val page by produceState<Bitmap?>(null, i) {
                 value = withContext(Dispatchers.IO) {
@@ -182,7 +150,7 @@ private fun PdfPages(f: File) {
                 }
             }
             val img = remember(page) { page?.asImageBitmap() }
-            if (img != null) Image(img, "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
+            if (img != null) Image(img, "Page ${i + 1}", Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(4.dp)).clip(RoundedCornerShape(4.dp)), contentScale = ContentScale.FillWidth)
             else Box(Modifier.fillMaxWidth().aspectRatio(.7f).background(Color(0xFF1C2128)))
         }
     }

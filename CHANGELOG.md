@@ -1,5 +1,13 @@
 # Wayfinder changelog
 
+## v0.5.3
+
+- The viewer follows your look: glass title bar and themed background instead of plain black, with PDF pages and text on glass panels
+- Videos and music play with the suite's own glass controls (gel play button, ±10 s, scrubber, speed, loop, mute) instead of Android's stock player
+- Swipe a photo up or down to close it; pinch zooms around your fingers
+- Tap the tab you're already on to glide back to the top of its list
+- Nothing required stays hidden: if Android is blocking something the app needs, a slim banner says what and takes you straight to the switch, and Settings › Permissions and access lists everything with its state
+
 ## v0.5.2
 
 - Opening a folder slides in from the right and going back slides from the left; the loading spinner only appears if a folder is slow to read

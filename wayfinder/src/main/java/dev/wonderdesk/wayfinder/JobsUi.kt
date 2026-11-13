@@ -147,7 +147,7 @@ fun SafeScreen(onTab: (String) -> Unit) {
                     icon = WonderIcons.Lock, action = { WButton(if (Safe.isSetUp(context)) "Unlock" else "Set a password", { asking = true }, icon = WonderIcons.LockOpen, kind = ButtonKind.Primary) })
                 current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
                 current.isEmpty() -> EmptyState("Nothing in the Safe folder", "In Browse, select files, open the ⋮ menu and choose “Move to Safe folder”. They're encrypted and hidden from every other app.", icon = WonderIcons.Shield)
-                else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 100.dp)) {
+                else -> LazyColumn(Modifier.fillMaxSize(), state = rememberTabTopList(), contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 100.dp)) {
                     val list = current
                     item { Text("${list.size} item${if (list.size == 1) "" else "s"} · ${formatBytes(list.sumOf { it.size })} · encrypted", Modifier.padding(6.dp, 0.dp, 6.dp, 10.dp), style = MaterialTheme.typography.bodySmall, color = p.secondaryText) }
                     itemsIndexed(list, key = { _, it -> it.id }) { i, it ->

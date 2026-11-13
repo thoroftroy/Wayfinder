@@ -64,6 +64,13 @@ class MainActivity : WonderActivity() {
     companion object { val incoming = mutableStateOf<Intent?>(null) }
 }
 
+/** What Android must allow for this app to work fully; shown as a banner when off and in Settings. */
+private val APP_NEEDS by lazy { listOf(
+    WonderNeed("All files access", "A file manager has to see every folder to browse, copy and move files", access = SpecialAccess.Kind.ALL_FILES),
+    WonderNeed.notifications("Shows progress of long copies and Wi-Fi sharing", required = false),
+    WonderNeed("Install apps", "Opens APK files you download", required = false, access = SpecialAccess.Kind.INSTALL),
+) }
+
 private const val ABOUT = "Wayfinder is a full file manager for your phone and SD cards: browse every folder, copy, move, rename and delete with a recycle bin, " +
     "search by name, see what fills your storage, compress and extract ZIP files, and open anything in the right app."
 
@@ -163,7 +170,7 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
     var volumes by remember { mutableStateOf<List<Volume>>(emptyList()) }
     LaunchedEffect(refresh, mounts) { volumes = withContext(Dispatchers.IO) { Storage.volumes(context) } }
     var bookmarks by remember(refresh) { mutableStateOf(Bookmarks.all(context)) }
-    WonderApp(appName = "Wayfinder", about = ABOUT, tabs = TABS, selectedTab = "home", onTab = onTab) {
+    WonderApp(needs = APP_NEEDS, appName = "Wayfinder", about = ABOUT, tabs = TABS, selectedTab = "home", onTab = onTab) {
         Page {
             Panel(title = "Storage") {
                 volumes.forEachIndexed { i, v ->
@@ -400,7 +407,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                 when {
                     files == null && results == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
                     shown.isEmpty() -> EmptyState(if (results != null) "Nothing found" else "This folder is empty", if (results != null) "No names contain “$query”." else "Use + to make a folder, or paste files here.", icon = WonderIcons.FolderOpen)
-                    grid -> LazyVerticalGrid(GridCells.Adaptive(104.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
+                    grid -> LazyVerticalGrid(GridCells.Adaptive(104.dp), Modifier.fillMaxSize(), state = rememberTabTopGrid(), contentPadding = PaddingValues(12.dp)) {
                         items(shown.distinctBy { it.path }, key = { it.path }) { e ->
                             val sel = e.path in selected
                             Column(Modifier.padding(4.dp).clip(RoundedCornerShape(10.dp)).background(if (sel) p.selection.copy(alpha = .2f) else Color.Transparent)
@@ -565,7 +572,7 @@ private fun TrashScreen(onTab: (String) -> Unit) {
         menu = listOf(WonderMenuItem("Empty recycle bin", WonderIcons.DeleteSweep, danger = true) { confirm = true })) {
         val toast = LocalToast.current
         if (items.isEmpty()) EmptyState("Recycle bin is empty", "Files you delete in Wayfinder wait here for 30 days before they're removed for good.", icon = WonderIcons.Delete)
-        else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+        else LazyColumn(Modifier.fillMaxSize(), state = rememberTabTopList(), contentPadding = PaddingValues(16.dp)) {
             item { Text("${items.size} items" + (trashSize?.let { " · " + formatBytes(it) } ?: ""), Modifier.padding(6.dp, 0.dp, 6.dp, 10.dp), color = p.secondaryText, style = MaterialTheme.typography.bodySmall) }
             itemsIndexed(items, key = { _, t -> t.id }) { i, t ->
                 ListRow(File(t.from).name, Modifier.panelItem(i, items.size), subtitle = "From ${File(t.from).parent?.removePrefix(Storage.primary.path)?.ifBlank { "/" }} · deleted ${relativeTime(t.at)}",
