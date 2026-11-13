@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.4
+
+- Fixes from a full round of stress testing on every screen
+
 ## v0.5.3
 
 - The viewer follows your look: glass title bar and themed background instead of plain black, with PDF pages and text on glass panels
