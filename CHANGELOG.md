@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.6
+
+- The Safe folder works with Vault: tap “Use the password in Vault” to unlock with your fingerprint instead of typing, and new Safe passwords can be kept in Vault
+
 ## v0.5.5
 
 - Widgets can now match your look: new Bliss blue and Super neon backgrounds, and “Match my Wonderdesk look” follows whatever Control Room is set to

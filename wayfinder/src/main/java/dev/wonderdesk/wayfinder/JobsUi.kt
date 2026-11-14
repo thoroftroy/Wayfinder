@@ -87,15 +87,28 @@ fun SafePasswordDialog(onDismiss: () -> Unit, onOpen: () -> Unit) {
     var hint by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var saveToVault by remember { mutableStateOf(true) }
+    var autoGo by remember { mutableStateOf(false) }
+    val hasVault = remember { runCatching { context.packageManager.getPackageInfo("dev.wonderdesk.vault", 0); true }.getOrDefault(false) }
+    // Vault keeps the Safe folder password with your others: unlock Vault (fingerprint or master password) and it fills it in.
+    val fromVault = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        r.data?.getStringExtra("password")?.let { pw = it; if (setUp) autoGo = true }
+    }
+    val toVault = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { onOpen() }
     fun go() {
         if (!setUp && pw != pw2) { error = "The passwords don't match"; return }
         busy = true; error = null
         scope.launch {
             val r = withContext(Dispatchers.Default) { runCatching { if (setUp) Safe.unlock(context, pw) else { Safe.setUp(context, pw, hint); true } } }
             busy = false
-            r.onSuccess { ok -> if (ok) { onOpen() } else error = "That's not the Safe folder password" }.onFailure { error = it.message }
+            r.onSuccess { ok ->
+                if (!ok) error = "That's not the Safe folder password"
+                else if (!setUp && hasVault && saveToVault) toVault.launch(android.content.Intent("dev.wonderdesk.vault.SAVE").setPackage("dev.wonderdesk.vault").putExtra("title", "Wayfinder Safe folder").putExtra("password", pw))
+                else onOpen()
+            }.onFailure { error = it.message }
         }
     }
+    LaunchedEffect(autoGo) { if (autoGo) { autoGo = false; go() } }
     WonderDialog(onDismissRequest = onDismiss, title = { Text(if (setUp) "Unlock Safe folder" else "Set a Safe folder password") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(if (setUp) "Enter the Safe folder's own password." else "This password protects only the Safe folder. It's separate from your screen lock and fingerprint, and it can't be recovered, so keep it somewhere safe.",
@@ -105,6 +118,9 @@ fun SafePasswordDialog(onDismiss: () -> Unit, onOpen: () -> Unit) {
                 Field(pw2, { pw2 = it; error = null }, "Confirm password", visual = PasswordVisualTransformation(), keyboard = KeyboardType.Password)
                 Field(hint, { hint = it }, "Hint (optional)", supporting = "Shown on the unlock screen")
             } else Safe.hint(context).takeIf { it.isNotBlank() }?.let { Text("Hint: $it", style = MaterialTheme.typography.bodySmall, color = p.secondaryText) }
+            if (hasVault && setUp) WButton("Use the password in Vault", { fromVault.launch(android.content.Intent("dev.wonderdesk.vault.PICK").setPackage("dev.wonderdesk.vault").putExtra("title", "Wayfinder Safe folder")) },
+                Modifier.fillMaxWidth(), icon = WonderIcons.Key)
+            if (hasVault && !setUp) SwitchRow("Keep it in Vault", saveToVault, { saveToVault = it }, subtitle = "So you can unlock the Safe folder from Vault later")
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let { Text(it, color = p.danger, style = MaterialTheme.typography.bodySmall) }
         }
