@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.7
+
+- Widgets: choose the title colour in each widget's settings (automatic, white, dark, Aqua blue, Super pink or gold), on top of the background looks
+
 ## v0.5.6
 
 - The Safe folder works with Vault: tap “Use the password in Vault” to unlock with your fingerprint instead of typing, and new Safe passwords can be kept in Vault
