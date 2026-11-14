@@ -1,5 +1,10 @@
 # Wayfinder changelog
 
+## v0.5.10
+
+- Rename many files at once: select them and choose “Rename all…”. Use a pattern with a number (Holiday ### gives Holiday 001, 002…) or find and replace, with a live preview of every new name. Extensions are kept
+- Copy path (or paths) of the selected files from the menu
+
 ## v0.5.9
 
 - Lighter on the battery: in the Super look the drifting sparkles settle after a few seconds without a touch (the next tap wakes them), so a screen you're reading no longer redraws 25 times a second

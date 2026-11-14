@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -377,7 +378,8 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
             }
         },
         menu = if (inSelect) listOfNotNull(
-            if (selection.size == 1) WonderMenuItem("Rename", WonderIcons.DriveFileRenameOutline) { dialog = "rename" } else null,
+            if (selection.size == 1) WonderMenuItem("Rename", WonderIcons.DriveFileRenameOutline) { dialog = "rename" } else WonderMenuItem("Rename all ${selection.size}…", WonderIcons.DriveFileRenameOutline) { dialog = "batch" },
+            WonderMenuItem(if (selection.size == 1) "Copy path" else "Copy paths", WonderIcons.ContentCopy) { context.copyText("Path", selection.joinToString("\n") { it.path }); toastRef.value("Copied") },
             WonderMenuItem("Compress to ZIP", WonderIcons.FolderZip) { dialog = "zip" },
             WonderMenuItem("Move to Safe folder", WonderIcons.Lock) {
                 val src = selection
@@ -467,6 +469,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
         "rename" -> selection.firstOrNull()?.let { f -> InputDialog("Rename", "New name", initial = f.name, confirm = "Rename", onDismiss = { dialog = null }) { n ->
             val t = File(f.parentFile, n); if (t.exists()) toastRef.value("Something with that name already exists") else if (f.renameTo(t)) { selected = emptySet(); tick++ } else toastRef.value("Couldn't rename")
         } }
+        "batch" -> BatchRename(selection, onDismiss = { dialog = null }) { n -> selected = emptySet(); tick++; toastRef.value("Renamed $n") }
         "zip" -> InputDialog("Compress to ZIP", "Archive name", initial = (if (selection.size == 1) selection[0].nameWithoutExtension else dir.name.ifBlank { "Archive" }) + ".zip", confirm = "Compress", onDismiss = { dialog = null }) { n ->
             val out = Ops.uniqueName(selection.first().parentFile ?: dir, if (n.endsWith(".zip")) n else "$n.zip"); val src = selection
             runOp("Compress") { rep -> Ops.zip(src, out, rep) }
@@ -583,4 +586,48 @@ private fun TrashScreen(onTab: (String) -> Unit) {
         }
     }
     if (confirm) ConfirmDialog("Empty the recycle bin?", "Everything in it will be deleted permanently.", "Empty", onConfirm = { Ops.emptyTrash(); tick++ }, onDismiss = { confirm = false }, danger = true)
+}
+
+
+/**
+ * Renames many files at once: a pattern with a number ("Holiday ###" → Holiday 001, 002…) or find and replace,
+ * with a live preview of every new name before anything changes. Extensions are kept.
+ */
+@Composable
+private fun BatchRename(files: List<File>, onDismiss: () -> Unit, onDone: (Int) -> Unit) {
+    val p = wonderPalette()
+    var mode by remember { mutableIntStateOf(0) }
+    var pattern by remember { mutableStateOf((files.firstOrNull()?.parentFile?.name ?: "File") + " ###") }
+    var find by remember { mutableStateOf("") }
+    var replace by remember { mutableStateOf("") }
+    val sorted = remember(files) { files.sortedBy { it.name.lowercase() } }
+    val names = sorted.mapIndexed { i, f ->
+        val ext = if (f.isDirectory || !f.name.contains('.')) "" else "." + f.extension
+        if (mode == 0) {
+            val hashes = Regex("#+").find(pattern)?.value ?: ""
+            (if (hashes.isEmpty()) "$pattern ${i + 1}" else pattern.replaceFirst(hashes, (i + 1).toString().padStart(hashes.length, '0'))) + ext
+        } else if (find.isEmpty()) f.name else f.nameWithoutExtension.replace(find, replace, ignoreCase = true) + ext
+    }
+    val clash = names.toSet().size != names.size || names.any { it.isBlank() || it.contains('/') }
+    WonderDialog(onDismissRequest = onDismiss, title = { Text("Rename ${files.size} items") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Segmented(listOf("Pattern", "Find and replace"), mode) { mode = it }
+            if (mode == 0) Field(pattern, { pattern = it }, "New name", supporting = "# marks the number: ### gives 001, 002…")
+            else { Field(find, { find = it }, "Find"); Field(replace, { replace = it }, "Replace with") }
+            Panel(title = "Preview") {
+                Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
+                    sorted.zip(names).take(50).forEachIndexed { i, (f, n) -> if (i > 0) PanelDivider(12.dp)
+                        Text("${f.name}  →  $n", Modifier.padding(10.dp, 6.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+                }
+            }
+            if (clash) Text("Two items would get the same name (or a name is empty). Change the pattern.", color = p.danger, style = MaterialTheme.typography.bodySmall)
+        }
+    }, confirmButton = { TextButton(enabled = !clash, onClick = {
+        var done = 0
+        // Two passes through temporary names so swapping names between files can't collide.
+        val temps = sorted.map { f -> File(f.parentFile, ".wf-rename-" + System.nanoTime() + "-" + f.name).also { t -> if (f.renameTo(t)) Unit } }
+        temps.zip(names).forEachIndexed { i, (t, n) -> val target = File(t.parentFile, n)
+            if (!target.exists() && t.renameTo(target)) done++ else t.renameTo(sorted[i]) }
+        onDone(done); onDismiss()
+    }) { Text("Rename") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
