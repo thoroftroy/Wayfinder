@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.11
+
+- Recent files on Home: documents, downloads and other files changed in the last two weeks, newest first, one tap to open
+
 ## v0.5.10
 
 - Rename many files at once: select them and choose “Rename all…”. Use a pattern with a number (Holiday ### gives Holiday 001, 002…) or find and replace, with a live preview of every new name. Extensions are kept

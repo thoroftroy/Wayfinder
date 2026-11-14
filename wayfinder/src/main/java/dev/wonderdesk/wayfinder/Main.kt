@@ -171,8 +171,23 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
     var volumes by remember { mutableStateOf<List<Volume>>(emptyList()) }
     LaunchedEffect(refresh, mounts) { volumes = withContext(Dispatchers.IO) { Storage.volumes(context) } }
     var bookmarks by remember(refresh) { mutableStateOf(Bookmarks.all(context)) }
+    // Recent files, like Files by Google: whatever changed in the last two weeks, newest first (photos and videos live in Memories).
+    var recent by remember { mutableStateOf<List<File>>(emptyList()) }
+    LaunchedEffect(refresh) { recent = withContext(Dispatchers.IO) { runCatching {
+        val out = mutableListOf<File>(); val since = System.currentTimeMillis() / 1000 - 14 * 86_400
+        context.contentResolver.query(android.provider.MediaStore.Files.getContentUri("external"), arrayOf(android.provider.MediaStore.MediaColumns.DATA),
+            "${android.provider.MediaStore.MediaColumns.DATE_MODIFIED} > ? AND ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} NOT IN (1, 3) AND ${android.provider.MediaStore.MediaColumns.SIZE} > 0",
+            arrayOf(since.toString()), "${android.provider.MediaStore.MediaColumns.DATE_MODIFIED} DESC")?.use { c ->
+            while (c.moveToNext() && out.size < 12) { val f = File(c.getString(0) ?: continue); if (f.isFile && f.path.split('/').none { it.startsWith(".") } && "/Android/" !in f.path) out += f }
+        }
+        out
+    }.getOrDefault(emptyList()) } }
     WonderApp(needs = APP_NEEDS, appName = "Wayfinder", about = ABOUT, tabs = TABS, selectedTab = "home", onTab = onTab) {
         Page {
+            if (recent.isNotEmpty()) Panel(title = "Recent files") {
+                recent.take(6).forEachIndexed { i, f -> if (i > 0) PanelDivider()
+                    ListRow(f.name, subtitle = (f.parentFile?.takeIf { it.path != Storage.primary.path }?.name ?: "Internal storage") + " · " + formatBytes(f.length()) + " · " + relativeTime(f.lastModified()), icon = WonderIcons.InsertDriveFile, tint = Color(0xFF4A90E2), onClick = { onOpen(f) }) }
+            }
             Panel(title = "Storage") {
                 volumes.forEachIndexed { i, v ->
                     if (i > 0) PanelDivider()
