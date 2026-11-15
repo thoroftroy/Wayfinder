@@ -1,5 +1,11 @@
 # Wayfinder changelog
 
+## v0.5.12
+
+- Wayfinder is a file picker for other apps and websites: when something asks for a file (Upload in a browser, Attach in a mail app, Open in an editor), choose Wayfinder to pick from your whole storage, including hidden files, with quick links to Downloads, Pictures and more
+- Apps that ask where to save a file (Save as, Export) can use Wayfinder too: choose a folder, name the file and save
+- Picking several files at once works, and only files of the type the app asked for are shown
+
 ## v0.5.11
 
 - Recent files on Home: documents, downloads and other files changed in the last two weeks, newest first, one tap to open
