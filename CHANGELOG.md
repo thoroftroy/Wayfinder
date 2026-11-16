@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.15
+
+- Ripple computers connect through the system folder picker (Android doesn't let apps read another app's file provider directly, which is why the list came back empty): pick a computer once, Wayfinder remembers it and browses its files right here — files stay on the computer, nothing downloads unless you tap “Save to phone”
+
 ## v0.5.14
 
 - Network tab: Ripple computers now open right inside Wayfinder — browse your PC's files with no downloading, files stay on the computer and stream straight into viewers; long-press a computer for options, "Save to phone" keeps an offline copy only when you ask

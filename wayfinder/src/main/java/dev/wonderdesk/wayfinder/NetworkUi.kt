@@ -39,8 +39,10 @@ import java.io.File
 data class NetClip(val server: NetServer, val entries: List<NetEntry>)
 var netClip by mutableStateOf<NetClip?>(null)
 
-/** A paired Ripple computer, exposed by Ripple's DocumentsProvider as a storage root. */
-data class RippleComputer(val fp: String, val name: String, val summary: String, val docId: String)
+/** A paired Ripple computer Wayfinder may browse. Access comes from a persisted system
+ *  folder grant (picked once in the system picker), never from querying Ripple's provider
+ *  directly — Android forbids apps from reading another app's DocumentsProvider that way. */
+data class RippleComputer(val fp: String, val name: String, val summary: String, val docId: String, val tree: String)
 
 object RippleShare {
     const val AUTHORITY = "dev.wonderdesk.ripple.files"
@@ -52,33 +54,41 @@ object RippleShare {
         c.packageManager.resolveContentProvider(AUTHORITY, 0) != null
     }.getOrDefault(false)
 
-    /** Paired computers from Ripple's provider. Empty when Ripple isn't installed or has none. */
+    private fun prefs(c: Context) = c.getSharedPreferences("wayfinder", Context.MODE_PRIVATE)
+
+    /** Computers the user connected (persisted folder grants). */
     fun computers(c: Context): List<RippleComputer> = runCatching {
-        val uri = DocumentsContract.buildRootsUri(AUTHORITY)
-        c.contentResolver.query(uri, arrayOf(
-            android.provider.DocumentsContract.Root.COLUMN_ROOT_ID,
-            android.provider.DocumentsContract.Root.COLUMN_TITLE,
-            android.provider.DocumentsContract.Root.COLUMN_SUMMARY,
-            android.provider.DocumentsContract.Root.COLUMN_DOCUMENT_ID,
-        ), null, null, null)?.use { cur ->
-            val out = mutableListOf<RippleComputer>()
-            val iId = cur.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_ROOT_ID)
-            val iTitle = cur.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_TITLE)
-            val iSum = cur.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_SUMMARY)
-            val iDoc = cur.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_DOCUMENT_ID)
-            while (cur.moveToNext()) {
-                val fp = if (iId >= 0) cur.getString(iId) else continue
-                if (fp.isNullOrBlank()) continue
-                out += RippleComputer(
-                    fp = fp,
-                    name = (if (iTitle >= 0) cur.getString(iTitle) else null).orEmpty().ifBlank { "Computer" },
-                    summary = (if (iSum >= 0) cur.getString(iSum) else null).orEmpty(),
-                    docId = (if (iDoc >= 0) cur.getString(iDoc) else null).orEmpty(),
-                )
-            }
-            out
-        } ?: emptyList()
+        org.json.JSONArray(prefs(c).getString("ripple_roots", "[]")).let { a -> (0 until a.length()).map { a.getJSONObject(it) }.map { o ->
+            RippleComputer(o.getString("fp"), o.optString("name", "Computer"), o.optString("summary", "Ripple"), o.getString("doc"), o.getString("tree"))
+        } }
     }.getOrDefault(emptyList())
+
+    private fun save(c: Context, list: List<RippleComputer>) = prefs(c).edit().putString("ripple_roots", org.json.JSONArray(list.map {
+        org.json.JSONObject().put("fp", it.fp).put("name", it.name).put("summary", it.summary).put("doc", it.docId).put("tree", it.tree)
+    }).toString()).apply()
+
+    /** Remembers a computer picked in the system folder picker, keeping its access grant. */
+    fun connect(c: Context, treeUri: android.net.Uri): RippleComputer? = runCatching {
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        c.contentResolver.takePersistableUriPermission(treeUri, flags)
+        val docId = DocumentsContract.getDocumentId(treeUri)
+        val fp = docId.substringBefore('|')
+        val name = runCatching {
+            c.contentResolver.query(DocumentsContract.buildDocumentUri(AUTHORITY, docId),
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use {
+                if (it.moveToFirst()) it.getString(0) else null
+            }
+        }.getOrNull().orEmpty().ifBlank { docId.substringAfterLast('/').ifBlank { "Computer" } }
+        val rc = RippleComputer(fp, name, "Ripple · stays on your computer", docId, treeUri.toString())
+        save(c, (computers(c).filter { it.tree != rc.tree } + rc))
+        rc
+    }.getOrNull()
+
+    fun forget(c: Context, rc: RippleComputer) {
+        runCatching { c.contentResolver.releasePersistableUriPermission(android.net.Uri.parse(rc.tree),
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+        save(c, computers(c).filter { it.tree != rc.tree })
+    }
 
     /** Opens the computer in Ripple's file browser. */
     fun open(c: Context, fp: String) {
@@ -89,18 +99,14 @@ object RippleShare {
         if (c.packageManager.resolveActivity(explicit, 0) != null) {
             runCatching { c.startActivity(explicit) }.onSuccess { return }
         }
-        // Fallback: let the system file picker show the Ripple root.
         runCatching {
-            val docId = computers(c).find { it.fp == fp }?.docId
-            val uri = if (docId != null) DocumentsContract.buildDocumentUri(AUTHORITY, docId)
-            else DocumentsContract.buildRootsUri(AUTHORITY)
-            c.startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri))
+            c.startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 
     /** Streams a remote file straight to a viewer — no manual download, the file stays on the PC. */
-    fun view(c: Context, docId: String, mime: String, name: String, edit: Boolean = false): Boolean = runCatching {
-        val uri = DocumentsContract.buildDocumentUri(AUTHORITY, docId)
+    fun view(c: Context, tree: android.net.Uri, docId: String, mime: String, name: String, edit: Boolean = false): Boolean = runCatching {
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, docId)
         val type = mime.ifBlank { "*/*" }
         val intent = (if (edit) Intent(Intent.ACTION_EDIT) else Intent(Intent.ACTION_VIEW)).setDataAndType(uri, type)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or if (edit) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
@@ -113,18 +119,11 @@ object RippleShare {
 data class RippleDoc(val id: String, val name: String, val isDir: Boolean, val size: Long, val modified: Long, val mime: String)
 
 object RippleDocs {
-    private const val A = RippleShare.AUTHORITY
-
-    fun children(c: Context, docId: String): List<RippleDoc> {
+    fun children(c: Context, tree: android.net.Uri, docId: String): List<RippleDoc> {
         val out = mutableListOf<RippleDoc>()
-        val uri = DocumentsContract.buildChildDocumentsUri(A, docId)
-        c.contentResolver.query(uri, arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_MIME_TYPE,
-            DocumentsContract.Document.COLUMN_SIZE,
-            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
-        ), null, null, null)?.use { cur ->
+        // Null projection: some provider versions crash when asked for a subset of columns.
+        val uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
+        c.contentResolver.query(uri, null, null, null, null)?.use { cur ->
             val iId = cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             val iName = cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             val iMime = cur.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
@@ -147,24 +146,24 @@ object RippleDocs {
         return out.sortedWith(compareByDescending<RippleDoc> { it.isDir }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
     }
 
-    fun mkdir(c: Context, parentId: String, name: String): String =
-        DocumentsContract.createDocument(c.contentResolver, DocumentsContract.buildDocumentUri(A, parentId),
+    fun mkdir(c: Context, tree: android.net.Uri, parentId: String, name: String): String =
+        DocumentsContract.createDocument(c.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, parentId),
             DocumentsContract.Document.MIME_TYPE_DIR, name)?.let { DocumentsContract.getDocumentId(it) }
             ?: throw java.io.FileNotFoundException("Couldn't create the folder")
 
-    fun rename(c: Context, docId: String, name: String): String =
-        DocumentsContract.renameDocument(c.contentResolver, DocumentsContract.buildDocumentUri(A, docId), name)
+    fun rename(c: Context, tree: android.net.Uri, docId: String, name: String): String =
+        DocumentsContract.renameDocument(c.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, docId), name)
             ?.let { DocumentsContract.getDocumentId(it) }
             ?: throw java.io.FileNotFoundException("Couldn't rename")
 
-    fun delete(c: Context, doc: RippleDoc) {
-        if (!DocumentsContract.deleteDocument(c.contentResolver, DocumentsContract.buildDocumentUri(A, doc.id)))
+    fun delete(c: Context, tree: android.net.Uri, doc: RippleDoc) {
+        if (!DocumentsContract.deleteDocument(c.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, doc.id)))
             throw java.io.FileNotFoundException("Couldn't delete ${doc.name}")
     }
 
     /** Copies a phone file into the remote folder. Streams both ways; nothing is kept locally. */
-    fun upload(c: Context, parentId: String, name: String, mime: String, src: android.net.Uri, onBytes: (Long) -> Unit) {
-        val created = DocumentsContract.createDocument(c.contentResolver, DocumentsContract.buildDocumentUri(A, parentId), mime, name)
+    fun upload(c: Context, tree: android.net.Uri, parentId: String, name: String, mime: String, src: android.net.Uri, onBytes: (Long) -> Unit) {
+        val created = DocumentsContract.createDocument(c.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, parentId), mime, name)
             ?: throw java.io.FileNotFoundException("Couldn't upload $name")
         c.contentResolver.openInputStream(src)?.use { i ->
             c.contentResolver.openOutputStream(created, "w")?.use { o ->
@@ -175,8 +174,8 @@ object RippleDocs {
     }
 
     /** Optional offline copy: streams the remote file into a phone folder. */
-    fun download(c: Context, doc: RippleDoc, dest: File, onBytes: (Long) -> Unit) {
-        val uri = DocumentsContract.buildDocumentUri(A, doc.id)
+    fun download(c: Context, tree: android.net.Uri, doc: RippleDoc, dest: File, onBytes: (Long) -> Unit) {
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, doc.id)
         val t = Ops.uniqueName(dest, doc.name)
         c.contentResolver.openInputStream(uri)?.use { i ->
             t.outputStream().use { o ->
@@ -207,21 +206,27 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
     var shareSettings by remember { mutableStateOf(false) }
     var cfg by remember { mutableStateOf(ShareConfig.load(context)) }
     val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
-    var ripple by remember { mutableStateOf<List<RippleComputer>>(emptyList()) }
+    var ripple by remember { mutableStateOf(RippleShare.computers(context)) }
     var rippleInstalled by remember { mutableStateOf(false) }
     var openRipple by remember { mutableStateOf<RippleComputer?>(null) }
+    var forgetRipple by remember { mutableStateOf<RippleComputer?>(null) }
+    val toastRef0 = remember { mutableStateOf<(String) -> Unit>({}) }
+    val connectRipple = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (uri.authority != RippleShare.AUTHORITY) { toastRef0.value("Pick one of your Ripple computers"); return@rememberLauncherForActivityResult }
+        val rc = RippleShare.connect(context, uri)
+        if (rc != null) { ripple = RippleShare.computers(context); openRipple = rc }
+        else toastRef0.value("Couldn't keep access to that folder")
+    }
     LaunchedEffect(Unit) {
         rippleInstalled = withContext(Dispatchers.IO) { RippleShare.isInstalled(context) }
-        ripple = withContext(Dispatchers.IO) { RippleShare.computers(context) }
     }
     open?.let { s -> NetBrowser(s, onClose = { open = null }); return }
     openRipple?.let { r -> RippleBrowser(r, onClose = { openRipple = null }) ; return }
-    LaunchedEffect(openRipple) {
-        if (openRipple == null) ripple = withContext(Dispatchers.IO) { RippleShare.computers(context) }
-    }
     WonderApp(appName = "Wayfinder", about = NET_ABOUT, tabs = TABS, selectedTab = "network", onTab = onTab, title = "Network",
         actions = { ToolbarButton(WonderIcons.Add, "Add a share", { editing = NetServer(NetServers.newId(), "", "", "", "", "", "") }) }) {
         val toast = LocalToast.current
+        toastRef0.value = toast
         LaunchedEffect(ShareService.lastError) { ShareService.lastError?.let { toast(it) } }
         Page {
             Panel(title = "Share this phone", footer = "Anyone on the same Wi-Fi can open the address in a browser or an FTP app. It stops by itself after ${cfg.idleMinutes} minutes with no one connected.") {
@@ -256,24 +261,33 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
                 }
             }
             if (rippleInstalled || ripple.isNotEmpty()) Panel(title = "Ripple computers",
-                footer = if (ripple.isEmpty()) "Pair Ripple on this phone to see your computers here. Browse their files right inside Wayfinder — files stay on the computer." else "Browse PC files right here with no downloading — they stay on the computer. Long-press a computer for options.") {
-                if (ripple.isEmpty()) ListRow("Open Ripple", subtitle = "Pair a computer to browse its files", icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085), chevron = true,
-                    onClick = {
-                        val launch = context.packageManager.getLaunchIntentForPackage(RippleShare.PKG)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        if (launch != null) runCatching { context.startActivity(launch) }.onFailure { toast("Couldn't open Ripple") }
-                        else toast("Ripple isn't installed")
-                    })
+                footer = "Pick a computer once in the system picker — Wayfinder remembers it and browses its files right here. Files stay on the computer; nothing downloads unless you tap “Save to phone”.") {
                 ripple.forEachIndexed { i, r ->
                     if (i > 0) PanelDivider()
                     ListRow(r.name, subtitle = (r.summary.ifBlank { "Ripple" }) + " · tap to browse", icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085), chevron = true,
-                        onClick = { openRipple = r }, onLongClick = { RippleShare.open(context, r.fp) })
+                        onClick = { openRipple = r }, onLongClick = { forgetRipple = r })
                 }
+                if (ripple.isNotEmpty()) PanelDivider()
+                ListRow(if (ripple.isEmpty()) "Connect a Ripple computer" else "Connect another computer",
+                    subtitle = if (ripple.isEmpty()) "Pair in Ripple first, then pick the computer here" else "Pick another paired computer",
+                    icon = WonderIcons.Add, tint = p.accent, chevron = true,
+                    onClick = { connectRipple.launch(null) })
             }
         }
     }
     editing?.let { s -> ServerDialog(s, onDismiss = { editing = null }, onDelete = { NetServers.remove(context, s.id); servers = NetServers.all(context); editing = null }) { saved ->
         NetServers.upsert(context, saved); servers = NetServers.all(context); editing = null
     } }
+    forgetRipple?.let { r -> WonderDialog(onDismissRequest = { forgetRipple = null }, title = { Text(r.name) }, text = {
+        Column {
+            Panel {
+                ListRow("Open in Ripple's app", icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085), onClick = { forgetRipple = null; RippleShare.open(context, r.fp) }); PanelDivider()
+                ListRow("Forget this computer", subtitle = "Removes it from Wayfinder. Files stay on the computer", icon = WonderIcons.Delete, danger = true, onClick = {
+                    forgetRipple = null; RippleShare.forget(context, r); ripple = RippleShare.computers(context); if (openRipple?.tree == r.tree) openRipple = null
+                })
+            }
+        }
+    }, confirmButton = { TextButton(onClick = { forgetRipple = null }) { Text("Close") } }) }
     if (shareSettings) ShareSettingsDialog(cfg, onDismiss = { shareSettings = false }) { n -> cfg = n; n.save(context); shareSettings = false; if (ShareService.running) { ShareService.stop(context) } }
 }
 
@@ -472,10 +486,11 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
     var menuDoc by remember { mutableStateOf<RippleDoc?>(null) }
     var shownFor by remember { mutableStateOf<String?>(null) }
     val toastRef = remember { mutableStateOf<(String) -> Unit>({}) }
+    val tree = remember(computer.tree) { android.net.Uri.parse(computer.tree) }
     LaunchedEffect(cur, tick) {
         error = null
         if (cur != shownFor) docs = null
-        withContext(Dispatchers.IO) { runCatching { RippleDocs.children(context, cur) } }
+        withContext(Dispatchers.IO) { runCatching { RippleDocs.children(context, tree, cur) } }
             .onSuccess { docs = it; shownFor = cur }
             .onFailure {
                 if (docs == null || cur != shownFor) {
@@ -505,7 +520,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
                     }
                 }.getOrNull() ?: "Upload"
                 val mime = context.contentResolver.getType(u) ?: "*/*"
-                RippleDocs.upload(context, cur, name, mime, u) { n -> done += n; rep(Progress(done, total, name)) }
+                RippleDocs.upload(context, tree, cur, name, mime, u) { n -> done += n; rep(Progress(done, total, name)) }
             }
         }
     }
@@ -519,7 +534,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
                     if (sel.isEmpty()) toastRef.value("Pick files to save, not folders")
                     else { val dst = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS); runOp("Save") { rep ->
                         val total = sel.sumOf { it.size.coerceAtLeast(1) }; var done = 0L; Ops.cancel = false
-                        sel.forEach { d -> RippleDocs.download(context, d, dst) { n -> done += n; rep(Progress(done, total, d.name)) } } } }
+                        sel.forEach { d -> RippleDocs.download(context, tree, d, dst) { n -> done += n; rep(Progress(done, total, d.name)) } } } }
                 })
                 ToolbarButton(WonderIcons.Delete, "Delete", { dialog = "delete" })
             } else {
@@ -555,7 +570,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
                             onClick = {
                                 if (selected.isNotEmpty()) selected = if (sel) selected - e.id else selected + e.id
                                 else if (e.isDir) { stack = stack + e.id; selected = emptySet() }
-                                else if (!RippleShare.view(context, e.id, e.mime.ifBlank { "*/*" }, e.name)) toastRef.value("No app here can open ${e.name}")
+                                else if (!RippleShare.view(context, tree, e.id, e.mime.ifBlank { "*/*" }, e.name)) toastRef.value("No app here can open ${e.name}")
                             })
                     }
                 }
@@ -565,25 +580,25 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
     }
     when (dialog) {
         "mkdir" -> InputDialog("New folder", "Folder name", confirm = "Create", onDismiss = { dialog = null }) { n ->
-            runOp("New folder") { RippleDocs.mkdir(context, cur, n) }; tick++
+            runOp("New folder") { RippleDocs.mkdir(context, tree, cur, n) }; tick++
         }
         "rename" -> selection.firstOrNull()?.let { e -> InputDialog("Rename", "New name", initial = e.name, confirm = "Rename", onDismiss = { dialog = null }) { n ->
-            runOp("Rename") { RippleDocs.rename(context, e.id, n) }; tick++
+            runOp("Rename") { RippleDocs.rename(context, tree, e.id, n) }; tick++
         } }
         "delete" -> ConfirmDialog("Delete ${selection.size} item${if (selection.size == 1) "" else "s"} from ${computer.name}?", "Files stay on the computer have no recycle bin, so this can't be undone.", "Delete",
-            onConfirm = { val src = selection; runOp("Delete") { src.forEach { RippleDocs.delete(context, it) } }; tick++ }, onDismiss = { dialog = null }, danger = true)
+            onConfirm = { val src = selection; runOp("Delete") { src.forEach { RippleDocs.delete(context, tree, it) } }; tick++ }, onDismiss = { dialog = null }, danger = true)
     }
     menuDoc?.let { e ->
         WonderDialog(onDismissRequest = { menuDoc = null }, title = { Text(e.name) }, text = {
             Column {
                 Panel {
-                    ListRow("Open", icon = WonderIcons.OpenInNew, onClick = { menuDoc = null; if (!RippleShare.view(context, e.id, e.mime.ifBlank { "*/*" }, e.name)) toastRef.value("No app here can open ${e.name}") }); PanelDivider()
+                    ListRow("Open", icon = WonderIcons.OpenInNew, onClick = { menuDoc = null; if (!RippleShare.view(context, tree, e.id, e.mime.ifBlank { "*/*" }, e.name)) toastRef.value("No app here can open ${e.name}") }); PanelDivider()
                     if (!e.isDir) {
-                        ListRow("Edit", subtitle = "Saves back to ${computer.name}", icon = WonderIcons.Edit, onClick = { menuDoc = null; if (!RippleShare.view(context, e.id, e.mime.ifBlank { "*/*" }, e.name, edit = true)) toastRef.value("No app here can edit ${e.name}") }); PanelDivider()
+                        ListRow("Edit", subtitle = "Saves back to ${computer.name}", icon = WonderIcons.Edit, onClick = { menuDoc = null; if (!RippleShare.view(context, tree, e.id, e.mime.ifBlank { "*/*" }, e.name, edit = true)) toastRef.value("No app here can edit ${e.name}") }); PanelDivider()
                         ListRow("Save to phone", subtitle = "Keeps a copy in Downloads", icon = WonderIcons.Download, onClick = {
                             menuDoc = null; runOp("Save") { rep ->
                                 Ops.cancel = false
-                                RippleDocs.download(context, e, android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)) { n -> rep(Progress(n, e.size.coerceAtLeast(n), e.name)) } }
+                                RippleDocs.download(context, tree, e, android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)) { n -> rep(Progress(n, e.size.coerceAtLeast(n), e.name)) } }
                         }); PanelDivider()
                     }
                     ListRow("Copy link", subtitle = "The path on ${computer.name}", icon = WonderIcons.ContentCopy, onClick = { menuDoc = null; context.copyText("Path", e.id.substringAfter('|')); toastRef.value("Path copied") })
