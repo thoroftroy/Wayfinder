@@ -170,10 +170,14 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
     }
     var volumes by remember { mutableStateOf<List<Volume>>(emptyList()) }
     LaunchedEffect(refresh, mounts) { volumes = withContext(Dispatchers.IO) { Storage.volumes(context) } }
+    val prefs = remember { context.prefs("wayfinder") }
+    var showRecent by remember { mutableStateOf(prefs.getBoolean("showRecent", true)) }
     var bookmarks by remember(refresh) { mutableStateOf(Bookmarks.all(context)) }
     // Recent files, like Files by Google: whatever changed in the last two weeks, newest first (photos and videos live in Memories).
     var recent by remember { mutableStateOf<List<File>>(emptyList()) }
-    LaunchedEffect(refresh) { recent = withContext(Dispatchers.IO) { runCatching {
+    LaunchedEffect(refresh, showRecent) {
+        if (!showRecent) { recent = emptyList(); return@LaunchedEffect }
+        recent = withContext(Dispatchers.IO) { runCatching {
         val out = mutableListOf<File>(); val since = System.currentTimeMillis() / 1000 - 14 * 86_400
         context.contentResolver.query(android.provider.MediaStore.Files.getContentUri("external"), arrayOf(android.provider.MediaStore.MediaColumns.DATA),
             "${android.provider.MediaStore.MediaColumns.DATE_MODIFIED} > ? AND ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} NOT IN (1, 3) AND ${android.provider.MediaStore.MediaColumns.SIZE} > 0",
@@ -182,12 +186,14 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
         }
         out
     }.getOrDefault(emptyList()) } }
-    WonderApp(needs = APP_NEEDS, appName = "Wayfinder", about = ABOUT, tabs = TABS, selectedTab = "home", onTab = onTab) {
-        Page {
-            if (recent.isNotEmpty()) Panel(title = "Recent files") {
-                recent.take(6).forEachIndexed { i, f -> if (i > 0) PanelDivider()
-                    ListRow(f.name, subtitle = (f.parentFile?.takeIf { it.path != Storage.primary.path }?.name ?: "Internal storage") + " · " + formatBytes(f.length()) + " · " + relativeTime(f.lastModified()), icon = WonderIcons.InsertDriveFile, tint = Color(0xFF4A90E2), onClick = { onOpen(f) }) }
+    WonderApp(needs = APP_NEEDS, appName = "Wayfinder", about = ABOUT, tabs = TABS, selectedTab = "home", onTab = onTab,
+        settings = {
+            Panel(title = "Home") {
+                SwitchRow("Show recent files", showRecent, { showRecent = it; prefs.edit().putBoolean("showRecent", it).apply() },
+                    subtitle = "Files changed in the last two weeks, below Places", icon = WonderIcons.History, tint = Color(0xFF16A085))
             }
+        }) {
+        Page {
             Panel(title = "Storage") {
                 volumes.forEachIndexed { i, v ->
                     if (i > 0) PanelDivider()
@@ -235,6 +241,10 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                     if (i > 0) PanelDivider()
                     ListRow(name, icon = icon, tint = Color(0xFF4A90E2), chevron = true, onClick = { onOpen(Environment.getExternalStoragePublicDirectory(dir)) })
                 }
+            }
+            if (showRecent && recent.isNotEmpty()) Panel(title = "Recent files") {
+                recent.take(6).forEachIndexed { i, f -> if (i > 0) PanelDivider()
+                    ListRow(f.name, subtitle = (f.parentFile?.takeIf { it.path != Storage.primary.path }?.name ?: "Internal storage") + " · " + formatBytes(f.length()) + " · " + relativeTime(f.lastModified()), icon = WonderIcons.InsertDriveFile, tint = Color(0xFF4A90E2), onClick = { onOpen(f) }) }
             }
             if (bookmarks.isNotEmpty()) Panel(title = "Bookmarks") {
                 bookmarks.forEachIndexed { i, b ->

@@ -1,5 +1,10 @@
 # Wayfinder changelog
 
+## v0.5.13
+
+- Home Recent files is now a toggle (Settings) and sits below Places instead of at the very top
+- Network tab: paired Ripple computers appear as shares — open one in Ripple's file browser
+
 ## v0.5.12
 
 - Wayfinder is a file picker for other apps and websites: when something asks for a file (Upload in a browser, Attach in a mail app, Open in an editor), choose Wayfinder to pick from your whole storage, including hidden files, with quick links to Downloads, Pictures and more

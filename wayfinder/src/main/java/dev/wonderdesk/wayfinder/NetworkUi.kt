@@ -2,7 +2,9 @@
 
 package dev.wonderdesk.wayfinder
 
+import android.content.Context
 import android.content.Intent
+import android.provider.DocumentsContract
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -37,6 +39,66 @@ import java.io.File
 data class NetClip(val server: NetServer, val entries: List<NetEntry>)
 var netClip by mutableStateOf<NetClip?>(null)
 
+/** A paired Ripple computer, exposed by Ripple's DocumentsProvider as a storage root. */
+data class RippleComputer(val fp: String, val name: String, val summary: String, val docId: String)
+
+object RippleShare {
+    const val AUTHORITY = "dev.wonderdesk.ripple.files"
+    const val PKG = "dev.wonderdesk.ripple"
+
+    fun isInstalled(c: Context): Boolean = runCatching {
+        c.packageManager.getPackageInfo(PKG, 0); true
+    }.getOrDefault(false) || runCatching {
+        c.packageManager.resolveContentProvider(AUTHORITY, 0) != null
+    }.getOrDefault(false)
+
+    /** Paired computers from Ripple's provider. Empty when Ripple isn't installed or has none. */
+    fun computers(c: Context): List<RippleComputer> = runCatching {
+        val uri = DocumentsContract.buildRootsUri(AUTHORITY)
+        c.contentResolver.query(uri, arrayOf(
+            android.provider.DocumentsContract.Root.COLUMN_ROOT_ID,
+            android.provider.DocumentsContract.Root.COLUMN_TITLE,
+            android.provider.DocumentsContract.Root.COLUMN_SUMMARY,
+            android.provider.DocumentsContract.Root.COLUMN_DOCUMENT_ID,
+        ), null, null, null)?.use { cur ->
+            val out = mutableListOf<RippleComputer>()
+            val iId = cur.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_ROOT_ID)
+            val iTitle = cur.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_TITLE)
+            val iSum = cur.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_SUMMARY)
+            val iDoc = cur.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_DOCUMENT_ID)
+            while (cur.moveToNext()) {
+                val fp = if (iId >= 0) cur.getString(iId) else continue
+                if (fp.isNullOrBlank()) continue
+                out += RippleComputer(
+                    fp = fp,
+                    name = (if (iTitle >= 0) cur.getString(iTitle) else null).orEmpty().ifBlank { "Computer" },
+                    summary = (if (iSum >= 0) cur.getString(iSum) else null).orEmpty(),
+                    docId = (if (iDoc >= 0) cur.getString(iDoc) else null).orEmpty(),
+                )
+            }
+            out
+        } ?: emptyList()
+    }.getOrDefault(emptyList())
+
+    /** Opens the computer in Ripple's file browser. */
+    fun open(c: Context, fp: String) {
+        val explicit = Intent(Intent.ACTION_MAIN)
+            .setClassName(PKG, "$PKG.MainActivity")
+            .putExtra("computer", fp)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (c.packageManager.resolveActivity(explicit, 0) != null) {
+            runCatching { c.startActivity(explicit) }.onSuccess { return }
+        }
+        // Fallback: let the system file picker show the Ripple root.
+        runCatching {
+            val docId = computers(c).find { it.fp == fp }?.docId
+            val uri = if (docId != null) DocumentsContract.buildDocumentUri(AUTHORITY, docId)
+            else DocumentsContract.buildRootsUri(AUTHORITY)
+            c.startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri))
+        }
+    }
+}
+
 fun downloadFromNet(c: NetClip, dest: File, rep: (Progress) -> Unit) {
     val total = c.entries.sumOf { if (it.isDir) 0L else it.size }.coerceAtLeast(1)
     var done = 0L
@@ -56,6 +118,12 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
     var shareSettings by remember { mutableStateOf(false) }
     var cfg by remember { mutableStateOf(ShareConfig.load(context)) }
     val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
+    var ripple by remember { mutableStateOf<List<RippleComputer>>(emptyList()) }
+    var rippleInstalled by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        rippleInstalled = withContext(Dispatchers.IO) { RippleShare.isInstalled(context) }
+        ripple = withContext(Dispatchers.IO) { RippleShare.computers(context) }
+    }
     open?.let { s -> NetBrowser(s, onClose = { open = null }); return }
     WonderApp(appName = "Wayfinder", about = NET_ABOUT, tabs = TABS, selectedTab = "network", onTab = onTab, title = "Network",
         actions = { ToolbarButton(WonderIcons.Add, "Add a share", { editing = NetServer(NetServers.newId(), "", "", "", "", "", "") }) }) {
@@ -91,6 +159,20 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
                     if (i > 0) PanelDivider()
                     ListRow(s.label, subtitle = "smb://${s.host}/${s.share}" + if (s.guest) " · guest" else " · ${s.user}", icon = WonderIcons.Storage, tint = Color(0xFF1E7FE8), chevron = true,
                         onClick = { open = s }, onLongClick = { editing = s })
+                }
+            }
+            if (rippleInstalled || ripple.isNotEmpty()) Panel(title = "Ripple computers",
+                footer = if (ripple.isEmpty()) "Pair Ripple on this phone to see your computers here. Open one to browse its files." else "Your paired computers, via Ripple. Opens in Ripple's file browser.") {
+                if (ripple.isEmpty()) ListRow("Open Ripple", subtitle = "Pair a computer to browse its files", icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085), chevron = true,
+                    onClick = {
+                        val launch = context.packageManager.getLaunchIntentForPackage(RippleShare.PKG)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        if (launch != null) runCatching { context.startActivity(launch) }.onFailure { toast("Couldn't open Ripple") }
+                        else toast("Ripple isn't installed")
+                    })
+                ripple.forEachIndexed { i, r ->
+                    if (i > 0) PanelDivider()
+                    ListRow(r.name, subtitle = r.summary.ifBlank { "Ripple" }, icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085), chevron = true,
+                        onClick = { RippleShare.open(context, r.fp) })
                 }
             }
         }
