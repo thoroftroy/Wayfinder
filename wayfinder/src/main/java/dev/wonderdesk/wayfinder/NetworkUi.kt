@@ -526,7 +526,12 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
             .onFailure { error = it.message ?: "Couldn't open the share" }
     }
     fun runOp(label: String, work: ((Progress) -> Unit) -> Unit) { Jobs.enqueue(context, label) { job -> work { pr -> job.report(pr) } }; selected = emptySet() }
-    JobListener { j -> tick++; if (!j.label.startsWith("Opening")) toastRef.value(when (j.state) { "done" -> "${j.label} done"; "cancelled" -> "${j.label} cancelled"; else -> j.error ?: "${j.label} didn't finish" }) }
+    JobListener { j ->
+        tick++
+        // Failures always speak up (with the real reason): the old code stayed silent on "Opening…" jobs.
+        if (j.state == "failed") toastRef.value(j.error ?: "${j.label} didn't finish")
+        else if (!j.label.startsWith("Opening")) toastRef.value(when (j.state) { "done" -> "${j.label} done"; "cancelled" -> "${j.label} cancelled"; else -> j.error ?: "${j.label} didn't finish" })
+    }
     val selection = items.orEmpty().filter { it.path in selected }
     BackHandler { when { selected.isNotEmpty() -> selected = emptySet(); path.isNotEmpty() -> path = path.substringBeforeLast('/', ""); else -> onClose() } }
     WonderApp(appName = "Wayfinder", about = NET_ABOUT, title = if (selected.isNotEmpty()) "${selected.size} selected" else path.substringAfterLast('/').ifEmpty { server.label },
@@ -641,7 +646,12 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
             scope.launch { openFile(context, f) { toastRef.value(it) } }
         }
     }
-    JobListener { j -> tick++; if (!j.label.startsWith("Opening")) toastRef.value(when (j.state) { "done" -> "${j.label} done"; "cancelled" -> "${j.label} cancelled"; else -> j.error ?: "${j.label} didn't finish" }) }
+    JobListener { j ->
+        tick++
+        // Failures always speak up (with the real reason): the old code stayed silent on "Opening…" jobs.
+        if (j.state == "failed") toastRef.value(j.error ?: "${j.label} didn't finish")
+        else if (!j.label.startsWith("Opening")) toastRef.value(when (j.state) { "done" -> "${j.label} done"; "cancelled" -> "${j.label} cancelled"; else -> j.error ?: "${j.label} didn't finish" })
+    }
     val selection = docs.orEmpty().filter { it.id in selected }
     val upload = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult

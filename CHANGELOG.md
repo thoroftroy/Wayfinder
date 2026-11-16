@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.18
+
+- Failed file opens now say why out loud instead of preparing forever and going quiet — the real reason shows as a message
+
 ## v0.5.17
 
 - Ripple computers open straight into the shared Ripple folder (which always exists) instead of the whole computer
