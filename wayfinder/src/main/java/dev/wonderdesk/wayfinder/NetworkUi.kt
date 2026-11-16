@@ -97,6 +97,95 @@ object RippleShare {
             c.startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri))
         }
     }
+
+    /** Streams a remote file straight to a viewer — no manual download, the file stays on the PC. */
+    fun view(c: Context, docId: String, mime: String, name: String, edit: Boolean = false): Boolean = runCatching {
+        val uri = DocumentsContract.buildDocumentUri(AUTHORITY, docId)
+        val type = mime.ifBlank { "*/*" }
+        val intent = (if (edit) Intent(Intent.ACTION_EDIT) else Intent(Intent.ACTION_VIEW)).setDataAndType(uri, type)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or if (edit) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+        c.startActivity(Intent.createChooser(intent, (if (edit) "Edit " else "Open ") + name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    }.getOrDefault(false)
+}
+
+/** One file or folder on a Ripple computer, read live through Ripple's provider. */
+data class RippleDoc(val id: String, val name: String, val isDir: Boolean, val size: Long, val modified: Long, val mime: String)
+
+object RippleDocs {
+    private const val A = RippleShare.AUTHORITY
+
+    fun children(c: Context, docId: String): List<RippleDoc> {
+        val out = mutableListOf<RippleDoc>()
+        val uri = DocumentsContract.buildChildDocumentsUri(A, docId)
+        c.contentResolver.query(uri, arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        ), null, null, null)?.use { cur ->
+            val iId = cur.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val iName = cur.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val iMime = cur.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val iSize = cur.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+            val iMod = cur.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            while (cur.moveToNext()) {
+                val id = if (iId >= 0) cur.getString(iId) else continue
+                if (id.isNullOrBlank()) continue
+                val mime = if (iMime >= 0) cur.getString(iMime).orEmpty() else ""
+                out += RippleDoc(
+                    id = id,
+                    name = (if (iName >= 0) cur.getString(iName) else null).orEmpty().ifBlank { id.substringAfterLast('/') },
+                    isDir = mime == DocumentsContract.Document.MIME_TYPE_DIR,
+                    size = if (iSize >= 0) cur.getLong(iSize) else 0L,
+                    modified = if (iMod >= 0) cur.getLong(iMod) else 0L,
+                    mime = mime,
+                )
+            }
+        } ?: throw java.io.FileNotFoundException("Couldn't reach the computer. Open Ripple to reconnect, then try again.")
+        return out.sortedWith(compareByDescending<RippleDoc> { it.isDir }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+    }
+
+    fun mkdir(c: Context, parentId: String, name: String): String =
+        DocumentsContract.createDocument(c.contentResolver, DocumentsContract.buildDocumentUri(A, parentId),
+            DocumentsContract.Document.MIME_TYPE_DIR, name)?.let { DocumentsContract.getDocumentId(it) }
+            ?: throw java.io.FileNotFoundException("Couldn't create the folder")
+
+    fun rename(c: Context, docId: String, name: String): String =
+        DocumentsContract.renameDocument(c.contentResolver, DocumentsContract.buildDocumentUri(A, docId), name)
+            ?.let { DocumentsContract.getDocumentId(it) }
+            ?: throw java.io.FileNotFoundException("Couldn't rename")
+
+    fun delete(c: Context, doc: RippleDoc) {
+        if (!DocumentsContract.deleteDocument(c.contentResolver, DocumentsContract.buildDocumentUri(A, doc.id)))
+            throw java.io.FileNotFoundException("Couldn't delete ${doc.name}")
+    }
+
+    /** Copies a phone file into the remote folder. Streams both ways; nothing is kept locally. */
+    fun upload(c: Context, parentId: String, name: String, mime: String, src: android.net.Uri, onBytes: (Long) -> Unit) {
+        val created = DocumentsContract.createDocument(c.contentResolver, DocumentsContract.buildDocumentUri(A, parentId), mime, name)
+            ?: throw java.io.FileNotFoundException("Couldn't upload $name")
+        c.contentResolver.openInputStream(src)?.use { i ->
+            c.contentResolver.openOutputStream(created, "w")?.use { o ->
+                val b = ByteArray(256 * 1024)
+                while (true) { if (Ops.cancel) throw Cancelled(); val n = i.read(b); if (n < 0) break; o.write(b, 0, n); onBytes(n.toLong()) }
+            } ?: throw java.io.FileNotFoundException("Couldn't write $name")
+        } ?: throw java.io.FileNotFoundException("Couldn't read the file to send")
+    }
+
+    /** Optional offline copy: streams the remote file into a phone folder. */
+    fun download(c: Context, doc: RippleDoc, dest: File, onBytes: (Long) -> Unit) {
+        val uri = DocumentsContract.buildDocumentUri(A, doc.id)
+        val t = Ops.uniqueName(dest, doc.name)
+        c.contentResolver.openInputStream(uri)?.use { i ->
+            t.outputStream().use { o ->
+                val b = ByteArray(256 * 1024)
+                while (true) { if (Ops.cancel) throw Cancelled(); val n = i.read(b); if (n < 0) break; o.write(b, 0, n); onBytes(n.toLong()) }
+            }
+        } ?: throw java.io.FileNotFoundException("Couldn't open ${doc.name}")
+        if (doc.modified > 0) t.setLastModified(doc.modified)
+    }
 }
 
 fun downloadFromNet(c: NetClip, dest: File, rep: (Progress) -> Unit) {
@@ -120,11 +209,16 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
     val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
     var ripple by remember { mutableStateOf<List<RippleComputer>>(emptyList()) }
     var rippleInstalled by remember { mutableStateOf(false) }
+    var openRipple by remember { mutableStateOf<RippleComputer?>(null) }
     LaunchedEffect(Unit) {
         rippleInstalled = withContext(Dispatchers.IO) { RippleShare.isInstalled(context) }
         ripple = withContext(Dispatchers.IO) { RippleShare.computers(context) }
     }
     open?.let { s -> NetBrowser(s, onClose = { open = null }); return }
+    openRipple?.let { r -> RippleBrowser(r, onClose = { openRipple = null }) ; return }
+    LaunchedEffect(openRipple) {
+        if (openRipple == null) ripple = withContext(Dispatchers.IO) { RippleShare.computers(context) }
+    }
     WonderApp(appName = "Wayfinder", about = NET_ABOUT, tabs = TABS, selectedTab = "network", onTab = onTab, title = "Network",
         actions = { ToolbarButton(WonderIcons.Add, "Add a share", { editing = NetServer(NetServers.newId(), "", "", "", "", "", "") }) }) {
         val toast = LocalToast.current
@@ -162,7 +256,7 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
                 }
             }
             if (rippleInstalled || ripple.isNotEmpty()) Panel(title = "Ripple computers",
-                footer = if (ripple.isEmpty()) "Pair Ripple on this phone to see your computers here. Open one to browse its files." else "Your paired computers, via Ripple. Opens in Ripple's file browser.") {
+                footer = if (ripple.isEmpty()) "Pair Ripple on this phone to see your computers here. Browse their files right inside Wayfinder — files stay on the computer." else "Browse PC files right here with no downloading — they stay on the computer. Long-press a computer for options.") {
                 if (ripple.isEmpty()) ListRow("Open Ripple", subtitle = "Pair a computer to browse its files", icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085), chevron = true,
                     onClick = {
                         val launch = context.packageManager.getLaunchIntentForPackage(RippleShare.PKG)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -171,8 +265,8 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
                     })
                 ripple.forEachIndexed { i, r ->
                     if (i > 0) PanelDivider()
-                    ListRow(r.name, subtitle = r.summary.ifBlank { "Ripple" }, icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085), chevron = true,
-                        onClick = { RippleShare.open(context, r.fp) })
+                    ListRow(r.name, subtitle = (r.summary.ifBlank { "Ripple" }) + " · tap to browse", icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085), chevron = true,
+                        onClick = { openRipple = r }, onLongClick = { RippleShare.open(context, r.fp) })
                 }
             }
         }
@@ -357,6 +451,145 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
         "rename" -> selection.firstOrNull()?.let { e -> InputDialog("Rename", "New name", initial = e.name, confirm = "Rename", onDismiss = { dialog = null }) { n -> runOp("Rename") { SmbSession.open(server).use { s -> s.rename(e, n) } } } }
         "delete" -> ConfirmDialog("Delete ${selection.size} item${if (selection.size == 1) "" else "s"} from ${server.label}?", "Network shares have no recycle bin, so this can't be undone.", "Delete",
             onConfirm = { val src = selection; runOp("Delete") { SmbSession.open(server).use { s -> src.forEach { s.delete(it) } } } }, onDismiss = { dialog = null }, danger = true)
+    }
+}
+
+/* -------------------------------------------------- Ripple browser --------------------------------------------- */
+/* Live view of a paired computer: files stay on the PC and stream straight into viewers.
+   Nothing is downloaded unless you explicitly choose "Save to phone". */
+
+@Composable
+private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
+    val context = LocalContext.current
+    val p = wonderPalette()
+    var stack by remember { mutableStateOf(listOf(computer.docId)) }
+    val cur = stack.last()
+    var docs by remember { mutableStateOf<List<RippleDoc>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableIntStateOf(0) }
+    var selected by remember(cur) { mutableStateOf(setOf<String>()) }
+    var dialog by remember { mutableStateOf<String?>(null) }
+    var menuDoc by remember { mutableStateOf<RippleDoc?>(null) }
+    var shownFor by remember { mutableStateOf<String?>(null) }
+    val toastRef = remember { mutableStateOf<(String) -> Unit>({}) }
+    LaunchedEffect(cur, tick) {
+        error = null
+        if (cur != shownFor) docs = null
+        withContext(Dispatchers.IO) { runCatching { RippleDocs.children(context, cur) } }
+            .onSuccess { docs = it; shownFor = cur }
+            .onFailure {
+                if (docs == null || cur != shownFor) {
+                    docs = null
+                    error = it.message ?: "Couldn't reach ${computer.name}. Open Ripple to reconnect, then try again."
+                } else toastRef.value(it.message ?: "Couldn't refresh")
+            }
+    }
+    fun runOp(label: String, work: ((Progress) -> Unit) -> Unit) { Jobs.enqueue(context, label) { job -> work { pr -> job.report(pr) } }; selected = emptySet() }
+    JobListener { j -> tick++; if (!j.label.startsWith("Opening")) toastRef.value(when (j.state) { "done" -> "${j.label} done"; "cancelled" -> "${j.label} cancelled"; else -> j.error ?: "${j.label} didn't finish" }) }
+    val selection = docs.orEmpty().filter { it.id in selected }
+    val upload = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        runOp("Upload") { rep ->
+            var done = 0L; Ops.cancel = false
+            val total = uris.sumOf { u ->
+                runCatching {
+                    context.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use {
+                        if (it.moveToFirst()) it.getLong(0).coerceAtLeast(0L) else 0L
+                    } ?: 0L
+                }.getOrDefault(0L)
+            }.coerceAtLeast(1L)
+            uris.forEach { u ->
+                val name = runCatching {
+                    context.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                        if (it.moveToFirst()) it.getString(0) else null
+                    }
+                }.getOrNull() ?: "Upload"
+                val mime = context.contentResolver.getType(u) ?: "*/*"
+                RippleDocs.upload(context, cur, name, mime, u) { n -> done += n; rep(Progress(done, total, name)) }
+            }
+        }
+    }
+    BackHandler { when { selected.isNotEmpty() -> selected = emptySet(); stack.size > 1 -> stack = stack.dropLast(1); else -> onClose() } }
+    WonderApp(appName = "Wayfinder", about = NET_ABOUT, title = if (selected.isNotEmpty()) "${selected.size} selected" else docs?.let { cur.substringAfterLast('/') }?.takeIf { it.isNotBlank() } ?: computer.name,
+        subtitle = "${computer.name} · stays on your computer", onBack = { if (selected.isNotEmpty()) selected = emptySet() else if (stack.size > 1) stack = stack.dropLast(1) else onClose() },
+        actions = {
+            if (selected.isNotEmpty()) {
+                ToolbarButton(WonderIcons.Download, "Save to phone", {
+                    val sel = selection.filter { !it.isDir }
+                    if (sel.isEmpty()) toastRef.value("Pick files to save, not folders")
+                    else { val dst = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS); runOp("Save") { rep ->
+                        val total = sel.sumOf { it.size.coerceAtLeast(1) }; var done = 0L; Ops.cancel = false
+                        sel.forEach { d -> RippleDocs.download(context, d, dst) { n -> done += n; rep(Progress(done, total, d.name)) } } } }
+                })
+                ToolbarButton(WonderIcons.Delete, "Delete", { dialog = "delete" })
+            } else {
+                ToolbarButton(WonderIcons.UploadFile, "Send files here", { upload.launch(arrayOf("*/*")) })
+                ToolbarButton(WonderIcons.CreateNewFolder, "New folder", { dialog = "mkdir" })
+                ToolbarButton(WonderIcons.Refresh, "Refresh", { tick++; docs = null })
+            }
+        },
+        menu = listOfNotNull(
+            if (selected.size == 1) WonderMenuItem("Rename", WonderIcons.DriveFileRenameOutline) { dialog = "rename" } else null,
+            WonderMenuItem("Open in Ripple app", WonderIcons.DeveloperBoard) { RippleShare.open(context, computer.fp) },
+        )) {
+        toastRef.value = LocalToast.current
+        Box(Modifier.fillMaxSize()) {
+            val current = docs; val err = error
+            when {
+                err != null && current == null -> EmptyState("Couldn't reach ${computer.name}", err, icon = WonderIcons.Error, action = { WButton("Try again", { tick++; docs = null }, icon = WonderIcons.Refresh) })
+                current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
+                current.isEmpty() -> EmptyState("This folder is empty", "Send files here with the upload button — they land on ${computer.name}.", icon = WonderIcons.FolderOpen)
+                else -> LazyColumn(Modifier.fillMaxSize(), state = rememberTabTopList(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp)) {
+                    itemsIndexed(current, key = { _, e -> e.id }) { i, e ->
+                        val sel = e.id in selected
+                        val kind = if (e.isDir) Kind.Folder else kindOf(e.name)
+                        val (icon, tint) = kindIcon(kind)
+                        ListRow(e.name, Modifier.panelItem(i, current.size), subtitle = (if (e.isDir) "Folder" else formatBytes(e.size)) + " · " + dev.wonderdesk.shared.relativeTime(e.modified),
+                            leading = { IconTile(icon, tint, 40.dp) }, selected = sel,
+                            trailing = if (selected.isNotEmpty()) ({ Checkbox(sel, { on -> selected = if (on) selected + e.id else selected - e.id }) }) else null,
+                            onLongClick = {
+                                if (selected.isNotEmpty()) selected = selected + e.id
+                                else if (e.isDir) selected = selected + e.id
+                                else menuDoc = e
+                            },
+                            onClick = {
+                                if (selected.isNotEmpty()) selected = if (sel) selected - e.id else selected + e.id
+                                else if (e.isDir) { stack = stack + e.id; selected = emptySet() }
+                                else if (!RippleShare.view(context, e.id, e.mime.ifBlank { "*/*" }, e.name)) toastRef.value("No app here can open ${e.name}")
+                            })
+                    }
+                }
+            }
+            JobsStrip(Modifier.align(Alignment.BottomCenter))
+        }
+    }
+    when (dialog) {
+        "mkdir" -> InputDialog("New folder", "Folder name", confirm = "Create", onDismiss = { dialog = null }) { n ->
+            runOp("New folder") { RippleDocs.mkdir(context, cur, n) }; tick++
+        }
+        "rename" -> selection.firstOrNull()?.let { e -> InputDialog("Rename", "New name", initial = e.name, confirm = "Rename", onDismiss = { dialog = null }) { n ->
+            runOp("Rename") { RippleDocs.rename(context, e.id, n) }; tick++
+        } }
+        "delete" -> ConfirmDialog("Delete ${selection.size} item${if (selection.size == 1) "" else "s"} from ${computer.name}?", "Files stay on the computer have no recycle bin, so this can't be undone.", "Delete",
+            onConfirm = { val src = selection; runOp("Delete") { src.forEach { RippleDocs.delete(context, it) } }; tick++ }, onDismiss = { dialog = null }, danger = true)
+    }
+    menuDoc?.let { e ->
+        WonderDialog(onDismissRequest = { menuDoc = null }, title = { Text(e.name) }, text = {
+            Column {
+                Panel {
+                    ListRow("Open", icon = WonderIcons.OpenInNew, onClick = { menuDoc = null; if (!RippleShare.view(context, e.id, e.mime.ifBlank { "*/*" }, e.name)) toastRef.value("No app here can open ${e.name}") }); PanelDivider()
+                    if (!e.isDir) {
+                        ListRow("Edit", subtitle = "Saves back to ${computer.name}", icon = WonderIcons.Edit, onClick = { menuDoc = null; if (!RippleShare.view(context, e.id, e.mime.ifBlank { "*/*" }, e.name, edit = true)) toastRef.value("No app here can edit ${e.name}") }); PanelDivider()
+                        ListRow("Save to phone", subtitle = "Keeps a copy in Downloads", icon = WonderIcons.Download, onClick = {
+                            menuDoc = null; runOp("Save") { rep ->
+                                Ops.cancel = false
+                                RippleDocs.download(context, e, android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)) { n -> rep(Progress(n, e.size.coerceAtLeast(n), e.name)) } }
+                        }); PanelDivider()
+                    }
+                    ListRow("Copy link", subtitle = "The path on ${computer.name}", icon = WonderIcons.ContentCopy, onClick = { menuDoc = null; context.copyText("Path", e.id.substringAfter('|')); toastRef.value("Path copied") })
+                }
+            }
+        }, confirmButton = { TextButton(onClick = { menuDoc = null }) { Text("Close") } })
     }
 }
 

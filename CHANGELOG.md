@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.14
+
+- Network tab: Ripple computers now open right inside Wayfinder — browse your PC's files with no downloading, files stay on the computer and stream straight into viewers; long-press a computer for options, "Save to phone" keeps an offline copy only when you ask
+
 ## v0.5.13
 
 - Home Recent files is now a toggle (Settings) and sits below Places instead of at the very top
