@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.17
+
+- Ripple computers open straight into the shared Ripple folder (which always exists) instead of the whole computer
+
 ## v0.5.16
 
 - Ripple computers appear automatically through the same-key link — no manual connecting step. If that link can't be used, the one-time system-picker grant is still there as a fallback

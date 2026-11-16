@@ -140,12 +140,15 @@ object RippleLink {
         val out = mutableListOf<RippleComputer>()
         c.contentResolver.query(compsUri(), null, null, null, null)?.use { cur ->
             val iFp = cur.getColumnIndex("fp"); val iName = cur.getColumnIndex("name")
-            val iSum = cur.getColumnIndex("summary"); val iHome = cur.getColumnIndex("home")
+            val iSum = cur.getColumnIndex("summary"); val iHome = cur.getColumnIndex("home"); val iShared = cur.getColumnIndex("shared")
             while (cur.moveToNext()) {
                 val fp = if (iFp >= 0) cur.getString(iFp) else continue
                 if (fp.isNullOrBlank()) continue
+                // Open straight into the Ripple folder: the daemon creates it, so it always exists.
+                val home = (if (iHome >= 0) cur.getString(iHome) else null).orEmpty()
+                val shared = (if (iShared >= 0) cur.getString(iShared) else null).orEmpty()
                 out += RippleComputer(fp, (if (iName >= 0) cur.getString(iName) else null).orEmpty().ifBlank { "Computer" },
-                    (if (iSum >= 0) cur.getString(iSum) else null).orEmpty(), (if (iHome >= 0) cur.getString(iHome) else null).orEmpty().ifBlank { "/" }, "")
+                    (if (iSum >= 0) cur.getString(iSum) else null).orEmpty(), shared.ifBlank { home }.ifBlank { "/" }, "")
             }
         } ?: throw java.io.FileNotFoundException("Ripple isn't reachable")
         return out
