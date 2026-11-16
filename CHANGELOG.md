@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.19
+
+- A failed file open now pops up with the real reason and one-tap copy, instead of preparing forever and going quiet
+
 ## v0.5.18
 
 - Failed file opens now say why out loud instead of preparing forever and going quiet — the real reason shows as a message

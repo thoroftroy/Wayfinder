@@ -528,7 +528,7 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
     fun runOp(label: String, work: ((Progress) -> Unit) -> Unit) { Jobs.enqueue(context, label) { job -> work { pr -> job.report(pr) } }; selected = emptySet() }
     JobListener { j ->
         tick++
-        // Failures always speak up (with the real reason): the old code stayed silent on "Opening…" jobs.
+        // Failures always speak up: the old code stayed silent on "Opening" jobs.
         if (j.state == "failed") toastRef.value(j.error ?: "${j.label} didn't finish")
         else if (!j.label.startsWith("Opening")) toastRef.value(when (j.state) { "done" -> "${j.label} done"; "cancelled" -> "${j.label} cancelled"; else -> j.error ?: "${j.label} didn't finish" })
     }
@@ -619,6 +619,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
     var dialog by remember { mutableStateOf<String?>(null) }
     var menuDoc by remember { mutableStateOf<RippleDoc?>(null) }
     var shownFor by remember { mutableStateOf<String?>(null) }
+    var openError by remember { mutableStateOf<String?>(null) }
     val toastRef = remember { mutableStateOf<(String) -> Unit>({}) }
     val scope = rememberCoroutineScope()
     val peer = remember(computer) { computer.peer() }
@@ -648,8 +649,9 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
     }
     JobListener { j ->
         tick++
-        // Failures always speak up (with the real reason): the old code stayed silent on "Opening…" jobs.
-        if (j.state == "failed") toastRef.value(j.error ?: "${j.label} didn't finish")
+        // Failures always speak up with the real reason: the old code stayed silent on "Opening…" jobs.
+        if (j.state == "failed" && j.label.startsWith("Opening")) openError = j.error ?: "${j.label} didn't finish"
+        else if (j.state == "failed") toastRef.value(j.error ?: "${j.label} didn't finish")
         else if (!j.label.startsWith("Opening")) toastRef.value(when (j.state) { "done" -> "${j.label} done"; "cancelled" -> "${j.label} cancelled"; else -> j.error ?: "${j.label} didn't finish" })
     }
     val selection = docs.orEmpty().filter { it.id in selected }
@@ -748,6 +750,14 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
         "delete" -> ConfirmDialog("Delete ${selection.size} item${if (selection.size == 1) "" else "s"} from ${computer.name}?", "Files stay on the computer have no recycle bin, so this can't be undone.", "Delete",
             onConfirm = { val src = selection; runOp("Delete") { src.forEach { RippleDocs.delete(context, peer, it) } }; tick++ }, onDismiss = { dialog = null }, danger = true)
     }
+    openError?.let { msg -> WonderDialog(onDismissRequest = { openError = null }, title = { Text("Couldn't open that file") }, text = {
+        Column {
+            Text(msg, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(8.dp))
+            Text("Copy the message if you report it — the path in it is what matters.", style = MaterialTheme.typography.bodySmall, color = p.secondaryText)
+        }
+    }, confirmButton = { TextButton(onClick = { context.copyText("Wayfinder error", msg); toastRef.value("Copied"); openError = null }) { Text("Copy") } },
+        dismissButton = { TextButton(onClick = { openError = null }) { Text("Close") } }) }
     menuDoc?.let { e ->
         val grant = peer as? RipplePeer.Grant
         WonderDialog(onDismissRequest = { menuDoc = null }, title = { Text(e.name) }, text = {
