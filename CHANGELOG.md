@@ -1,5 +1,10 @@
 # Wayfinder changelog
 
+## v0.5.16
+
+- Ripple computers appear automatically through the same-key link — no manual connecting step. If that link can't be used, the one-time system-picker grant is still there as a fallback
+- Ripple browser's New folder starts with a name, avoids clashes, and opens the folder it just made
+
 ## v0.5.15
 
 - Ripple computers connect through the system folder picker (Android doesn't let apps read another app's file provider directly, which is why the list came back empty): pick a computer once, Wayfinder remembers it and browses its files right here — files stay on the computer, nothing downloads unless you tap “Save to phone”
