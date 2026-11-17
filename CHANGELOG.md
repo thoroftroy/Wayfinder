@@ -1,12 +1,17 @@
 # Wayfinder changelog
 
+## v0.5.20
+
+- Ripple file paths stay absolute on the phone side. Photos and other files in the Ripple folder open instead of reporting a relative path as missing
+- Copy helper in the open failure dialog reworded. It now reads as two short sentences
+
 ## v0.5.19
 
 - A failed file open now pops up with the real reason and one-tap copy, instead of preparing forever and going quiet
 
 ## v0.5.18
 
-- Failed file opens now say why out loud instead of preparing forever and going quiet — the real reason shows as a message
+- Failed file opens now say why out loud instead of preparing forever and going quiet. The real reason shows as a message
 
 ## v0.5.17
 
@@ -14,21 +19,21 @@
 
 ## v0.5.16
 
-- Ripple computers appear automatically through the same-key link — no manual connecting step. If that link can't be used, the one-time system-picker grant is still there as a fallback
+- Ripple computers appear automatically through the same-key link. No manual connecting step. If that link can't be used, the one-time system-picker grant is still there as a fallback
 - Ripple browser's New folder starts with a name, avoids clashes, and opens the folder it just made
 
 ## v0.5.15
 
-- Ripple computers connect through the system folder picker (Android doesn't let apps read another app's file provider directly, which is why the list came back empty): pick a computer once, Wayfinder remembers it and browses its files right here — files stay on the computer, nothing downloads unless you tap “Save to phone”
+- Ripple computers connect through the system folder picker (Android doesn't let apps read another app's file provider directly, which is why the list came back empty): pick a computer once, Wayfinder remembers it and browses its files right here. Files stay on the computer, nothing downloads unless you tap “Save to phone”
 
 ## v0.5.14
 
-- Network tab: Ripple computers now open right inside Wayfinder — browse your PC's files with no downloading, files stay on the computer and stream straight into viewers; long-press a computer for options, "Save to phone" keeps an offline copy only when you ask
+- Network tab: Ripple computers now open right inside Wayfinder. Browse your PC's files with no downloading, files stay on the computer and stream straight into viewers; long-press a computer for options, "Save to phone" keeps an offline copy only when you ask
 
 ## v0.5.13
 
 - Home Recent files is now a toggle (Settings) and sits below Places instead of at the very top
-- Network tab: paired Ripple computers appear as shares — open one in Ripple's file browser
+- Network tab: paired Ripple computers appear as shares. Open one in Ripple's file browser
 
 ## v0.5.12
 

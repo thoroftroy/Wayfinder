@@ -33,7 +33,7 @@ private fun Context.documentFlags(uri: Uri): Long = contentResolver.query(uri, a
 
 private data class FileRow(val name: String, val folder: Boolean, val bytes: Long, val modified: Long, val doc: DocumentFile?, val raw: File?, val uri: String)
 
-enum class FileOrder(val label: String) { NAME_ASC("Name A–Z"), NAME_DESC("Name Z–A"), SIZE_DESC("Largest first") }
+enum class FileOrder(val label: String) { NAME_ASC("Name A to Z"), NAME_DESC("Name Z to A"), SIZE_DESC("Largest first") }
 data class FileSortKey(val name: String, val folder: Boolean, val bytes: Long)
 
 /** Count files (not folders) and sum their bytes. Pure for testing; display formatting stays with the UI. */

@@ -41,7 +41,7 @@ var netClip by mutableStateOf<NetClip?>(null)
 
 /** A paired Ripple computer Wayfinder may browse. Access comes from a persisted system
  *  folder grant (picked once in the system picker), never from querying Ripple's provider
- *  directly — Android forbids apps from reading another app's DocumentsProvider that way. */
+ *  directly. Android forbids apps from reading another app's DocumentsProvider that way. */
 data class RippleComputer(val fp: String, val name: String, val summary: String, val docId: String, val tree: String)
 
 object RippleShare {
@@ -104,7 +104,7 @@ object RippleShare {
         }
     }
 
-    /** Streams a remote file straight to a viewer — no manual download, the file stays on the PC. */
+    /** Streams a remote file straight to a viewer. No manual download. The file stays on the PC. */
     fun view(c: Context, tree: android.net.Uri, docId: String, mime: String, name: String, edit: Boolean = false): Boolean = runCatching {
         val uri = DocumentsContract.buildDocumentUriUsingTree(tree, docId)
         val type = mime.ifBlank { "*/*" }
@@ -123,12 +123,19 @@ sealed interface RipplePeer {
 }
 fun RippleComputer.peer(): RipplePeer = if (tree.isBlank()) RipplePeer.Link(fp) else RipplePeer.Grant(android.net.Uri.parse(tree))
 
-/** Direct machine link to Ripple: no picker, no grants. Same signing key only —
- *  anything else throws SecurityException and callers fall back to the picker flow. */
+/** Direct machine link to Ripple: no picker, no grants. Same signing key only.
+ *  Anything else throws SecurityException and callers fall back to the picker flow. */
 object RippleLink {
     private const val AUTH = "dev.wonderdesk.ripple.link"
 
     fun available(c: Context) = c.packageManager.resolveContentProvider(AUTH, 0) != null
+
+    /** Phone side paths stay absolute so the PC never sees a relative path it reads as missing. */
+    private fun absPath(p: String): String = when {
+        p.isEmpty() || p == "/" -> p.ifEmpty { "/" }
+        p.startsWith("/") || p.startsWith("~") -> p
+        else -> "/$p"
+    }
 
     private fun compsUri() = android.net.Uri.parse("content://$AUTH/computers")
     private fun lsUri(fp: String, path: String) = android.net.Uri.parse("content://$AUTH").buildUpon()
@@ -155,8 +162,9 @@ object RippleLink {
     }
 
     fun ls(c: Context, fp: String, path: String): List<RippleDoc> {
+        val q = absPath(path.ifEmpty { "/" })
         val out = mutableListOf<RippleDoc>()
-        c.contentResolver.query(lsUri(fp, path), null, null, null, null)?.use { cur ->
+        c.contentResolver.query(lsUri(fp, q), null, null, null, null)?.use { cur ->
             val iName = cur.getColumnIndex("name"); val iDir = cur.getColumnIndex("dir")
             val iSize = cur.getColumnIndex("size"); val iMod = cur.getColumnIndex("mtime")
             val iHid = cur.getColumnIndex("hidden"); val iPath = cur.getColumnIndex("path")
@@ -164,7 +172,7 @@ object RippleLink {
                 val name = if (iName >= 0) cur.getString(iName).orEmpty() else continue
                 if (name.isEmpty() || (iHid >= 0 && cur.getInt(iHid) != 0)) continue
                 val dir = (if (iDir >= 0) cur.getInt(iDir) else 0) != 0
-                val p = (if (iPath >= 0) cur.getString(iPath) else null).orEmpty().ifBlank { path.trimEnd('/') + "/" + name }
+                val p = absPath((if (iPath >= 0) cur.getString(iPath) else null).orEmpty().ifBlank { q.trimEnd('/') + "/" + name })
                 val mime = if (dir) android.provider.DocumentsContract.Document.MIME_TYPE_DIR
                     else android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()).orEmpty()
                 out += RippleDoc("$fp|$p", name, dir,
@@ -180,15 +188,15 @@ object RippleLink {
             ?: throw java.io.FileNotFoundException("Ripple didn't answer")
     }
 
-    fun mkdir(c: Context, fp: String, parent: String, name: String) { call(c, "mkdir", fp, parent.trimEnd('/') + "/" + name) }
-    fun rename(c: Context, fp: String, docId: String, name: String) { call(c, "mv", fp, docId.substringAfter('|'), docId.substringAfterLast('/').let { docId.substringBeforeLast('/') + "/" + name }.trim('/')) }
-    fun delete(c: Context, fp: String, doc: RippleDoc) { call(c, "rm", fp, doc.id.substringAfter('|')) }
+    fun mkdir(c: Context, fp: String, parent: String, name: String) { call(c, "mkdir", fp, absPath(parent.trimEnd('/') + "/" + name)) }
+    fun rename(c: Context, fp: String, docId: String, name: String) { call(c, "mv", fp, absPath(docId.substringAfter('|')), absPath(docId.substringAfterLast('/').let { docId.substringBeforeLast('/') + "/" + name })) }
+    fun delete(c: Context, fp: String, doc: RippleDoc) { call(c, "rm", fp, absPath(doc.id.substringAfter('|'))) }
 
     fun openRead(c: Context, fp: String, path: String): java.io.InputStream? =
-        c.contentResolver.openInputStream(fileUri(fp, path))
+        c.contentResolver.openInputStream(fileUri(fp, absPath(path)))
 
     fun openWrite(c: Context, fp: String, path: String): java.io.OutputStream? =
-        c.contentResolver.openOutputStream(fileUri(fp, path), "w")
+        c.contentResolver.openOutputStream(fileUri(fp, absPath(path)), "w")
 }
 
 /** One file or folder on a Ripple computer, read live through Ripple's provider. */
@@ -228,7 +236,8 @@ object RippleDocs {
 
     fun mkdir(c: Context, peer: RipplePeer, parentId: String, name: String): String {
         if (peer is RipplePeer.Link) {
-            val p = (parentId.substringAfter('|').trimEnd('/') + "/" + name).trim('/')
+            val raw = parentId.substringAfter('|').trimEnd('/') + "/" + name
+            val p = if (raw.startsWith("/")) raw else "/${raw.trim('/')}"
             RippleLink.mkdir(c, peer.fp, parentId.substringAfter('|'), name)
             return "${peer.fp}|$p"
         }
@@ -240,9 +249,10 @@ object RippleDocs {
 
     fun rename(c: Context, peer: RipplePeer, docId: String, name: String): String {
         if (peer is RipplePeer.Link) {
-            val np = docId.substringBeforeLast('/') + "/" + name
+            val raw = docId.substringBeforeLast('/') + "/" + name
+            val np = if (raw.startsWith("/")) raw else "/${raw.trim('/')}"
             RippleLink.rename(c, peer.fp, docId, name)
-            return np.trim('/')
+            return np
         }
         val tree = grant((peer as RipplePeer.Grant).tree.toString())
         return DocumentsContract.renameDocument(c.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, docId), name)
@@ -378,7 +388,7 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
             // doesn't have the link provider, or isn't signed with our key.
             val auto = linkComputers.filter { lc -> ripple.none { it.fp == lc.fp } }
             if (rippleInstalled || auto.isNotEmpty() || ripple.isNotEmpty()) Panel(title = "Ripple computers",
-                footer = "Paired computers show up here by themselves and browse right inside Wayfinder — files stay on the computer; nothing downloads unless you tap “Save to phone”.") {
+                footer = "Paired computers show up here by themselves and browse right inside Wayfinder. Files stay on the computer. Nothing downloads unless you tap “Save to phone”.") {
                 var first = true
                 (auto + ripple).forEach { r ->
                     if (!first) PanelDivider() else first = false
@@ -386,10 +396,10 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
                         onClick = { openRipple = r }, onLongClick = { forgetRipple = r })
                 }
                 if (auto.isEmpty() && ripple.isEmpty()) {
-                    if (!linkDenied) ListRow("No paired computers yet", subtitle = "Pair a computer in Ripple — it appears here by itself", icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085),
+                    if (!linkDenied) ListRow("No paired computers yet", subtitle = "Pair a computer in Ripple. It appears here by itself", icon = WonderIcons.DeveloperBoard, tint = Color(0xFF16A085),
                         onClick = { RippleShare.open(context, "") })
                     else ListRow("Connect a Ripple computer",
-                        subtitle = "Pick the computer once — Wayfinder remembers it",
+                        subtitle = "Pick the computer once. Wayfinder remembers it",
                         icon = WonderIcons.Add, tint = p.accent, chevron = true,
                         onClick = { connectRipple.launch(null) })
                 } else if (linkDenied && ripple.isEmpty()) {
@@ -706,7 +716,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
             when {
                 err != null && current == null -> EmptyState("Couldn't reach ${computer.name}", err, icon = WonderIcons.Error, action = { WButton("Try again", { tick++; docs = null }, icon = WonderIcons.Refresh) })
                 current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
-                current.isEmpty() -> EmptyState("This folder is empty", "Send files here with the upload button — they land on ${computer.name}.", icon = WonderIcons.FolderOpen)
+                current.isEmpty() -> EmptyState("This folder is empty", "Send files here with the upload button. They land on ${computer.name}.", icon = WonderIcons.FolderOpen)
                 else -> LazyColumn(Modifier.fillMaxSize(), state = rememberTabTopList(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp)) {
                     itemsIndexed(current, key = { _, e -> e.id }) { i, e ->
                         val sel = e.id in selected
@@ -754,7 +764,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
         Column {
             Text(msg, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
-            Text("Copy the message if you report it — the path in it is what matters.", style = MaterialTheme.typography.bodySmall, color = p.secondaryText)
+            Text("Copy the message if you report it. The path in it is what matters.", style = MaterialTheme.typography.bodySmall, color = p.secondaryText)
         }
     }, confirmButton = { TextButton(onClick = { context.copyText("Wayfinder error", msg); toastRef.value("Copied"); openError = null }) { Text("Copy") } },
         dismissButton = { TextButton(onClick = { openError = null }) { Text("Close") } }) }
