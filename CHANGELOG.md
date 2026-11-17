@@ -1,5 +1,10 @@
 # Wayfinder changelog
 
+## v0.5.24
+
+- Text size and accent colour chosen in Control Room now apply here
+- New Rotate with the phone switch in Settings. Rotates by default
+
 ## v0.5.23
 
 - New browsing settings: show hidden files, grid or list, folders first, grid tile size and reverse sort order
