@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.26
+
+- New settings: open in a chosen folder instead of Home
+
 ## v0.5.25
 
 - New sidebar in landscape and on tablets: storage, places, file types, bookmarks, network, safe folder and recycle bin are one tap away. Turn it off in Settings

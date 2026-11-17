@@ -115,8 +115,9 @@ fun WayfinderApp() {
         }
         return
     }
-    var tab by rememberSaveable { mutableStateOf("home") }
-    var path by rememberSaveable { mutableStateOf(Storage.primary.path) }
+    val startPrefs = remember { context.prefs("wayfinder") }
+    var tab by rememberSaveable { mutableStateOf(if (startPrefs.getBoolean("startBrowse", false)) "browse" else "home") }
+    var path by rememberSaveable { mutableStateOf(startPrefs.getString("startPath", null)?.takeIf { File(it).isDirectory } ?: Storage.primary.path) }
     var category by rememberSaveable { mutableStateOf<String?>(null) }
     var focusName by remember { mutableStateOf<String?>(null) }
     val incoming by MainActivity.incoming
@@ -234,6 +235,14 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                     subtitle = "Files changed in the last two weeks, below Places", icon = WonderIcons.History, tint = Color(0xFF16A085))
             }
             Panel(title = "Browsing", footer = "Applies the next time you open a folder.") {
+                var sb2 by remember { mutableStateOf(prefs.getBoolean("startBrowse", false)) }
+                SwitchRow("Open in a folder instead of Home", sb2, { sb2 = it; prefs.edit().putBoolean("startBrowse", it).apply() }, icon = WonderIcons.FolderOpen, tint = Color(0xFF1E7FE8)); PanelDivider()
+                var sp2 by remember { mutableStateOf(prefs.getString("startPath", "") ?: "") }
+                Column(Modifier.padding(16.dp, 10.dp)) { Text("That folder is", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("" to "Internal storage", Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).path to "Downloads", Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).path to "Documents",
+                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).path to "Camera", Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).path to "Pictures").forEach { (v, n) -> Chip(n, sp2 == v, { sp2 = v; prefs.edit().putString("startPath", v).apply() }) } } }
+                PanelDivider()
                 var sbar by remember { mutableStateOf(prefs.getBoolean("sidebar", true)) }
                 SwitchRow("Sidebar in wide windows", sbar, { sbar = it; prefs.edit().putBoolean("sidebar", it).apply() }, subtitle = "Landscape and tablets show your places on the left", icon = WonderIcons.GridView, tint = Color(0xFF16A085)); PanelDivider()
                 var hid by remember { mutableStateOf(prefs.getBoolean("hidden", false)) }
