@@ -192,6 +192,19 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                 SwitchRow("Show recent files", showRecent, { showRecent = it; prefs.edit().putBoolean("showRecent", it).apply() },
                     subtitle = "Files changed in the last two weeks, below Places", icon = WonderIcons.History, tint = Color(0xFF16A085))
             }
+            Panel(title = "Browsing", footer = "Applies the next time you open a folder.") {
+                var hid by remember { mutableStateOf(prefs.getBoolean("hidden", false)) }
+                SwitchRow("Show hidden files", hid, { hid = it; prefs.edit().putBoolean("hidden", it).apply() }, icon = WonderIcons.Visibility, tint = Color(0xFF8E44AD)); PanelDivider()
+                var gr by remember { mutableStateOf(prefs.getBoolean("grid", false)) }
+                SwitchRow("Show files as a grid", gr, { gr = it; prefs.edit().putBoolean("grid", it).apply() }, icon = WonderIcons.GridView, tint = Color(0xFF1E7FE8)); PanelDivider()
+                var ff by remember { mutableStateOf(prefs.getBoolean("foldersFirst", true)) }
+                SwitchRow("Folders before files", ff, { ff = it; prefs.edit().putBoolean("foldersFirst", it).apply() }, icon = WonderIcons.Folder, tint = Color(0xFFE39A12)); PanelDivider()
+                var ts by remember { mutableIntStateOf(prefs.getInt("tileSize", 104)) }
+                Column(Modifier.padding(16.dp, 10.dp)) { Text("Grid tile size: $ts dp", style = MaterialTheme.typography.labelLarge); Slider(ts.toFloat(), { ts = it.toInt() }, valueRange = 64f..200f, onValueChangeFinished = { prefs.edit().putInt("tileSize", ts).apply() }) }
+                PanelDivider()
+                var ds by remember { mutableStateOf(prefs.getBoolean("desc", false)) }
+                SwitchRow("Reverse the sort order", ds, { ds = it; prefs.edit().putBoolean("desc", it).apply() }, icon = WonderIcons.Sort, tint = Color(0xFF2E9E44))
+            }
         }) {
         Page {
             Panel(title = "Storage") {
@@ -357,7 +370,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                 val c = CATEGORIES.first { it.first == category }
                 val list = Listing.category(context, c.second, c.third)
                 if (sort == SortBy.Date && desc || sort == SortBy.Name && !desc && c.third != null) list else Listing.sort(list, sort.name, desc, foldersFirst = false)
-            } else Listing.sort(Listing.list(dir, hidden), sort.name, desc)
+            } else Listing.sort(Listing.list(dir, hidden), sort.name, desc, foldersFirst = prefs.getBoolean("foldersFirst", true))
         }
         spinner.cancel()
         files = loaded
@@ -434,7 +447,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                 when {
                     files == null && results == null -> LoadingPane("Reading this folder", detail = "Listing the files and folders inside")
                     shown.isEmpty() -> EmptyState(if (results != null) "Nothing found" else "This folder is empty", if (results != null) "No names contain “$query”." else "Use + to make a folder, or paste files here.", icon = WonderIcons.FolderOpen)
-                    grid -> LazyVerticalGrid(GridCells.Adaptive(104.dp), Modifier.fillMaxSize(), state = rememberTabTopGrid(), contentPadding = PaddingValues(12.dp)) {
+                    grid -> LazyVerticalGrid(GridCells.Adaptive(prefs.getInt("tileSize", 104).dp), Modifier.fillMaxSize(), state = rememberTabTopGrid(), contentPadding = PaddingValues(12.dp)) {
                         items(shown.distinctBy { it.path }, key = { it.path }) { e ->
                             val sel = e.path in selected
                             Column(Modifier.padding(4.dp).clip(RoundedCornerShape(10.dp)).background(if (sel) p.selection.copy(alpha = .2f) else Color.Transparent)

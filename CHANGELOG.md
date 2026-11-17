@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.23
+
+- New browsing settings: show hidden files, grid or list, folders first, grid tile size and reverse sort order
+
 ## v0.5.22
 
 - Loading screens now say what they are doing instead of showing a bare spinner
