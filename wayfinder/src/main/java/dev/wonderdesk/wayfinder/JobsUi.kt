@@ -122,7 +122,7 @@ fun SafePasswordDialog(onDismiss: () -> Unit, onOpen: () -> Unit) {
             if (hasVault && setUp) WButton("Use the password in Vault", { fromVault.launch(android.content.Intent("dev.wonderdesk.vault.PICK").setPackage("dev.wonderdesk.vault").putExtra("title", "Wayfinder Safe folder")) },
                 Modifier.fillMaxWidth(), icon = WonderIcons.Key)
             if (hasVault && !setUp) SwitchRow("Keep it in Vault", saveToVault, { saveToVault = it }, subtitle = "So you can unlock the Safe folder from Vault later")
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (busy) LoadingStatus("Setting up your Safe folder", detail = "Encrypting the key with your password", compact = true)
             error?.let { Text(it, color = p.danger, style = MaterialTheme.typography.bodySmall) }
         }
     }, confirmButton = { TextButton(enabled = !busy && pw.length >= (if (setUp) 1 else 4), onClick = { go() }) { Text(if (setUp) "Unlock" else "Create") } },
@@ -162,7 +162,7 @@ fun SafeScreen(onTab: (String) -> Unit) {
                 !unlocked -> EmptyState(if (Safe.isSetUp(context)) "Safe folder is locked" else "Your private, encrypted folder",
                     if (Safe.isSetUp(context)) "Enter the Safe folder password to see what's inside." else "Files you move here are encrypted with their own password and hidden from every other app. Choose a password to start.",
                     icon = WonderIcons.Lock, action = { WButton(if (Safe.isSetUp(context)) "Unlock" else "Set a password", { asking = true }, icon = WonderIcons.LockOpen, kind = ButtonKind.Primary) })
-                current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
+                current == null -> LoadingPane("Opening your Safe folder", detail = "Reading the list of files inside")
                 current.isEmpty() -> EmptyState("Nothing in the Safe folder", "In Browse, select files, open the ⋮ menu and choose “Move to Safe folder”. They're encrypted and hidden from every other app.", icon = WonderIcons.Shield)
                 else -> LazyColumn(Modifier.fillMaxSize(), state = rememberTabTopList(), contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 100.dp)) {
                     val list = current

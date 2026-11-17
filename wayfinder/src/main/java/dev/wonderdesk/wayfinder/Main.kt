@@ -432,7 +432,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
             if (category == null && !searching) Breadcrumbs(dir, onNavigate)
             Box(Modifier.weight(1f).graphicsLayer { translationX = slide.value * size.width * .18f; alpha = 1f - kotlin.math.abs(slide.value) * .6f }) {
                 when {
-                    files == null && results == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
+                    files == null && results == null -> LoadingPane("Reading this folder", detail = "Listing the files and folders inside")
                     shown.isEmpty() -> EmptyState(if (results != null) "Nothing found" else "This folder is empty", if (results != null) "No names contain “$query”." else "Use + to make a folder, or paste files here.", icon = WonderIcons.FolderOpen)
                     grid -> LazyVerticalGrid(GridCells.Adaptive(104.dp), Modifier.fillMaxSize(), state = rememberTabTopGrid(), contentPadding = PaddingValues(12.dp)) {
                         items(shown.distinctBy { it.path }, key = { it.path }) { e ->

@@ -1,5 +1,10 @@
 # Wayfinder changelog
 
+## v0.5.22
+
+- Loading screens now say what they are doing instead of showing a bare spinner
+- Wording tidied so no sentence needs a dash
+
 ## v0.5.21
 
 - Opening a Ripple file now shows live progress from the first byte with time left, instead of a spinner with no numbers

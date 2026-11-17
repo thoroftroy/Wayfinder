@@ -486,7 +486,7 @@ private fun ServerDialog(s: NetServer, onDismiss: () -> Unit, onDelete: () -> Un
             Field(pass, { pass = it }, "Password", visual = PasswordVisualTransformation(), keyboard = KeyboardType.Password)
             Field(domain, { domain = it }, "Domain or workgroup (optional)")
             Field(name, { name = it }, "Name (optional)")
-            if (testing) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (testing) LoadingStatus("Testing the connection", detail = "Signing in to the server", compact = true)
             result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 WButton("Test", {
@@ -583,7 +583,7 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
             val current = items; val err = error
             when {
                 err != null -> EmptyState("Couldn't open this share", err, icon = WonderIcons.Error, action = { WButton("Try again", { tick++ }, icon = WonderIcons.Refresh) })
-                current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
+                current == null -> LoadingPane("Opening this share", detail = "Asking the server for the folder list")
                 current.isEmpty() -> EmptyState("This folder is empty", "Copy files in Browse, then come here and tap Upload here.", icon = WonderIcons.FolderOpen)
                 else -> LazyColumn(Modifier.fillMaxSize(), state = rememberTabTopList(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp)) {
                     val list = current
@@ -739,7 +739,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
             val current = docs; val err = error
             when {
                 err != null && current == null -> EmptyState("Couldn't reach ${computer.name}", err, icon = WonderIcons.Error, action = { WButton("Try again", { tick++; docs = null }, icon = WonderIcons.Refresh) })
-                current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = p.accent) }
+                current == null -> LoadingPane("Reaching your computer", detail = "Asking it for this folder over Ripple")
                 current.isEmpty() -> EmptyState("This folder is empty", "Send files here with the upload button. They land on ${computer.name}.", icon = WonderIcons.FolderOpen)
                 else -> LazyColumn(Modifier.fillMaxSize(), state = rememberTabTopList(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp)) {
                     itemsIndexed(current, key = { _, e -> e.id }) { i, e ->

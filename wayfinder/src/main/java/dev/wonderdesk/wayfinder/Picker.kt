@@ -92,7 +92,7 @@ private fun PickerScreen(intent: Intent, finish: (Pair<Int, Intent?>) -> Unit) {
             val list = entries
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when {
-                    list == null -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(color = p.accent); Spacer(Modifier.height(10.dp)); Text("Reading ${dir.name.ifBlank { "storage" }}…", color = p.secondaryText) }
+                    list == null -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) { LoadingStatus("Reading ${dir.name.ifBlank { "storage" }}", detail = "Listing the files and folders inside") }
                     list.isEmpty() -> EmptyState(if (filters.isEmpty() || create) "Empty folder" else "Nothing to pick here", if (create) "Choose a name below and save here." else "No matching files in this folder.", icon = WonderIcons.Folder)
                     else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp, 4.dp, 12.dp, 12.dp)) {
                         item { Panel {
