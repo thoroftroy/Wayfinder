@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.27
+
+- Category names on Home are no longer cut off
+
 ## v0.5.26
 
 - New settings: open in a chosen folder instead of Home

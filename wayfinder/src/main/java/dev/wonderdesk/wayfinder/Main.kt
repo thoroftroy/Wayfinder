@@ -292,7 +292,7 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                         }.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             IconTile(icon, tint, 44.dp)
                             Spacer(Modifier.height(6.dp))
-                            Text(name, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(when (name) { "Documents" -> "Docs"; "Apps (APK)" -> "Apps"; else -> name }, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
                         }
                     }
                 }
