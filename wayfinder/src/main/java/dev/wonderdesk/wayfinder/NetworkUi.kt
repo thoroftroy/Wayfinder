@@ -140,6 +140,8 @@ object RippleLink {
     private fun compsUri() = android.net.Uri.parse("content://$AUTH/computers")
     private fun lsUri(fp: String, path: String) = android.net.Uri.parse("content://$AUTH").buildUpon()
         .appendPath("computers").appendPath(fp).appendPath("ls").appendQueryParameter("path", path).build()
+    /** A link a viewer can read on demand (big files are seekable, so a video starts at once). */
+    fun viewUri(fp: String, path: String, name: String) = fileUri(fp, absPath(path), name)
     private fun fileUri(fp: String, path: String, name: String = "") = android.net.Uri.parse("content://$AUTH").buildUpon()
         .appendPath("file").appendPath(fp).appendQueryParameter("path", path).appendQueryParameter("name", name).build()
 
@@ -669,6 +671,16 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
             }
     }
     fun runOp(label: String, work: ((Progress) -> Unit) -> Unit) { Jobs.enqueue(context, label) { job -> work { pr -> job.report(pr) } }; selected = emptySet() }
+    /** Hands the viewer a live link to a big file instead of copying it first. */
+    fun viewLive(e: RippleDoc): Boolean = runCatching {
+        val link = (peer as RipplePeer.Link)
+        val uri = RippleLink.viewUri(link.fp, e.id.substringAfter('|'), e.name)
+        val type = e.mime.ifBlank { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(e.name.substringAfterLast('.', "").lowercase()) ?: "*/*" }
+        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.clipData = android.content.ClipData.newRawUri(e.name, uri)
+        context.startActivity(Intent.createChooser(intent, "Open " + e.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    }.getOrDefault(false)
     /** Opens a copy through a normal viewer. Used for link mode (no grant to hand out) and as a fallback. */
     fun openCopy(e: RippleDoc) {
         if (e.isDir) return
@@ -758,6 +770,8 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
                                 if (selected.isNotEmpty()) selected = if (sel) selected - e.id else selected + e.id
                                 else if (e.isDir) { stack = stack + e.id; selected = emptySet() }
                                 else if (peer is RipplePeer.Grant && RippleShare.view(context, peer.tree, e.id, e.mime.ifBlank { "*/*" }, e.name)) Unit
+                                // Big files go straight to the viewer and are read as it plays; only small ones are copied first.
+                                else if (peer is RipplePeer.Link && e.size > 6L * 1024 * 1024 && viewLive(e)) Unit
                                 else openCopy(e)
                             })
                     }

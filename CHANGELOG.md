@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.28
+
+- Opening a big file from a Ripple computer no longer copies the whole thing to your phone first: it opens right in the viewer and is read as you watch, so videos start in seconds. Needs the newest Ripple too
+
 ## v0.5.27
 
 - Category names on Home are no longer cut off
