@@ -110,6 +110,10 @@ object RippleShare {
         val type = mime.ifBlank { "*/*" }
         val intent = (if (edit) Intent(Intent.ACTION_EDIT) else Intent(Intent.ACTION_VIEW)).setDataAndType(uri, type)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or if (edit) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+        if (!edit && (type.startsWith("video/") || type.startsWith("audio/"))) {
+            val direct = Intent(intent).setPackage(if (type.startsWith("video/")) "dev.wonderdesk.cinema" else "com.blissplayer.music.debug")
+            if (c.packageManager.queryIntentActivities(direct, 0).isNotEmpty()) { c.startActivity(direct.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return@runCatching true }
+        }
         c.startActivity(Intent.createChooser(intent, (if (edit) "Edit " else "Open ") + name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         true
     }.getOrDefault(false)
@@ -141,7 +145,7 @@ object RippleLink {
     private fun lsUri(fp: String, path: String) = android.net.Uri.parse("content://$AUTH").buildUpon()
         .appendPath("computers").appendPath(fp).appendPath("ls").appendQueryParameter("path", path).build()
     /** A link a viewer can read on demand (big files are seekable, so a video starts at once). */
-    fun viewUri(fp: String, path: String, name: String) = fileUri(fp, absPath(path), name)
+    fun viewUri(fp: String, path: String, name: String, version: String = "") = fileUri(fp, absPath(path), name).buildUpon().apply { if (version.isNotBlank()) appendQueryParameter("v", version) }.build()
     private fun fileUri(fp: String, path: String, name: String = "") = android.net.Uri.parse("content://$AUTH").buildUpon()
         .appendPath("file").appendPath(fp).appendQueryParameter("path", path).appendQueryParameter("name", name).build()
 
@@ -674,11 +678,15 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
     /** Hands the viewer a live link to a big file instead of copying it first. */
     fun viewLive(e: RippleDoc): Boolean = runCatching {
         val link = (peer as RipplePeer.Link)
-        val uri = RippleLink.viewUri(link.fp, e.id.substringAfter('|'), e.name)
+        val uri = RippleLink.viewUri(link.fp, e.id.substringAfter('|'), e.name, "${e.size}-${e.modified}")
         val type = e.mime.ifBlank { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(e.name.substringAfterLast('.', "").lowercase()) ?: "*/*" }
         val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         intent.clipData = android.content.ClipData.newRawUri(e.name, uri)
-        context.startActivity(Intent.createChooser(intent, "Open " + e.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        // Videos open in Cinema and music in Bliss Player straight away, without asking.
+        val player = when { type.startsWith("video/") -> "dev.wonderdesk.cinema"; type.startsWith("audio/") -> "com.blissplayer.music.debug"; else -> null }
+        val direct = player?.let { Intent(intent).setPackage(it) }
+        if (direct != null && context.packageManager.queryIntentActivities(direct, 0).isNotEmpty()) context.startActivity(direct.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        else context.startActivity(Intent.createChooser(intent, "Open " + e.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         true
     }.getOrDefault(false)
     /** Opens a copy through a normal viewer. Used for link mode (no grant to hand out) and as a fallback. */

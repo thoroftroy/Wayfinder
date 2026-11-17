@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.29
+
+- Videos and music on a Ripple computer open straight in Cinema or Bliss Player without asking, and start playing before the file has downloaded
+
 ## v0.5.28
 
 - Opening a big file from a Ripple computer no longer copies the whole thing to your phone first: it opens right in the viewer and is read as you watch, so videos start in seconds. Needs the newest Ripple too
