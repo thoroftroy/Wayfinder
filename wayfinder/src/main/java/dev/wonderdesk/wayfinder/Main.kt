@@ -133,7 +133,10 @@ fun WayfinderApp() {
         (context as ComponentActivity).intent = Intent()
     }
     Preview.current?.let { r -> MediaViewer(r) { Preview.current = null }; return }
-    when {
+    // Wide windows (landscape, tablets, foldables) get a sidebar of places, so any folder is one tap away.
+    val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600
+    val showSide = wide && (tab == "home" || tab == "browse" || category != null) && context.prefs("wayfinder").getBoolean("sidebar", true)
+    @Composable fun Pages() { when {
         tab == "network" -> NetworkScreen(onTab = { tab = it }, onShowLocal = { path = it.path; tab = "browse"; category = null })
         tab == "safe" -> SafeScreen(onTab = { tab = it })
         tab == "browse" || category != null -> Browser(
@@ -144,6 +147,44 @@ fun WayfinderApp() {
         )
         tab == "trash" -> TrashScreen(onTab = { tab = it })
         else -> Home(refresh, onOpen = { path = it.path; tab = "browse"; category = null }, onCategory = { category = it; tab = "browse" }, onTab = { tab = it })
+    } }
+    if (showSide) Row(Modifier.fillMaxSize()) {
+        WonderKitTheme { Box(Modifier.background(wonderPalette().window)) { Sidebar(path, category, refresh, onOpen = { path = it.path; tab = "browse"; category = null; focusName = null }, onCategory = { category = it; tab = "browse" }, onTab = { tab = it; category = null }) } }
+        Box(Modifier.weight(1f).fillMaxHeight()) { Pages() }
+    } else Pages()
+}
+
+/** Places on the left in wide windows: storage, shortcuts, categories, bookmarks and the other Wayfinder screens. */
+@Composable
+private fun Sidebar(path: String, category: String?, refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> Unit, onTab: (String) -> Unit) {
+    val context = LocalContext.current; val p = wonderPalette()
+    var volumes by remember { mutableStateOf<List<Volume>>(emptyList()) }
+    LaunchedEffect(refresh) { volumes = withContext(Dispatchers.IO) { Storage.volumes(context) } }
+    val bookmarks = remember(refresh) { Bookmarks.all(context) }
+    @Composable fun Item(label: String, icon: ImageVector, tint: Color, on: Boolean, click: () -> Unit) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (on) p.selection.copy(alpha = .22f) else Color.Transparent).clickable(onClick = click).padding(horizontal = 10.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(10.dp))
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = if (on) p.accent else p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+    @Composable fun Head(t: String) { Text(t.uppercase(), Modifier.padding(start = 10.dp, top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.labelSmall, color = p.secondaryText) }
+    Column(Modifier.width(210.dp).fillMaxHeight().background(p.panel.copy(alpha = .6f)).statusBarsPadding().verticalScroll(rememberScrollState()).padding(8.dp)) {
+        Item("Home", WonderIcons.Home, Color(0xFF1E7FE8), false) { onTab("home") }
+        Head("Storage")
+        volumes.forEach { v -> Item(v.name, if (v.removable) WonderIcons.SdStorage else WonderIcons.PhoneAndroid, Color(0xFF16A085), category == null && path.startsWith(v.root.path) && v.root.path.length > 1 && volumes.none { o -> o !== v && o.root.path.length > v.root.path.length && path.startsWith(o.root.path) }) { onOpen(v.root) } }
+        Head("Places")
+        listOf(Triple("Downloads", Environment.DIRECTORY_DOWNLOADS, WonderIcons.Download), Triple("Documents", Environment.DIRECTORY_DOCUMENTS, WonderIcons.Description), Triple("Camera", Environment.DIRECTORY_DCIM, WonderIcons.PhotoCamera),
+            Triple("Pictures", Environment.DIRECTORY_PICTURES, WonderIcons.Image), Triple("Music", Environment.DIRECTORY_MUSIC, WonderIcons.MusicNote), Triple("Movies", Environment.DIRECTORY_MOVIES, WonderIcons.Movie)).forEach { (n, d, i) ->
+            val dir = Environment.getExternalStoragePublicDirectory(d); Item(n, i, Color(0xFF4A90E2), category == null && path == dir.path) { onOpen(dir) } }
+        Head("Types")
+        CATEGORIES.filter { it.first != "Downloads" }.forEach { (name, kind, _) ->
+            val (icon, tint) = if (name == "Recent") WonderIcons.History to Color(0xFF16A085) else kindIcon(kind!!)
+            Item(name, icon, tint, category == name) { onCategory(name) } }
+        if (bookmarks.isNotEmpty()) { Head("Bookmarks"); bookmarks.forEach { b -> val f = File(b); Item(f.name.ifBlank { b }, WonderIcons.Bookmark, Color(0xFFF2A516), category == null && path == b) { onOpen(f) } } }
+        Head("More")
+        Item("Network", WonderIcons.Hub, Color(0xFF1E7FE8), false) { onTab("network") }
+        Item("Safe folder", WonderIcons.Lock, Color(0xFFE5483C), false) { onTab("safe") }
+        Item("Recycle bin", WonderIcons.Delete, Color(0xFF7A7F87), false) { onTab("trash") }
     }
 }
 
@@ -193,6 +234,8 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                     subtitle = "Files changed in the last two weeks, below Places", icon = WonderIcons.History, tint = Color(0xFF16A085))
             }
             Panel(title = "Browsing", footer = "Applies the next time you open a folder.") {
+                var sbar by remember { mutableStateOf(prefs.getBoolean("sidebar", true)) }
+                SwitchRow("Sidebar in wide windows", sbar, { sbar = it; prefs.edit().putBoolean("sidebar", it).apply() }, subtitle = "Landscape and tablets show your places on the left", icon = WonderIcons.GridView, tint = Color(0xFF16A085)); PanelDivider()
                 var hid by remember { mutableStateOf(prefs.getBoolean("hidden", false)) }
                 SwitchRow("Show hidden files", hid, { hid = it; prefs.edit().putBoolean("hidden", it).apply() }, icon = WonderIcons.Visibility, tint = Color(0xFF8E44AD)); PanelDivider()
                 var gr by remember { mutableStateOf(prefs.getBoolean("grid", false)) }

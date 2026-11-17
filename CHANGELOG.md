@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.25
+
+- New sidebar in landscape and on tablets: storage, places, file types, bookmarks, network, safe folder and recycle bin are one tap away. Turn it off in Settings
+
 ## v0.5.24
 
 - Text size and accent colour chosen in Control Room now apply here
