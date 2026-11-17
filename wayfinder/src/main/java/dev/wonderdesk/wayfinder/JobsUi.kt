@@ -60,7 +60,8 @@ fun JobsStrip(modifier: Modifier = Modifier) {
                 Column(Modifier.weight(1f)) {
                     Text(j.label + if (active.size > 1) "  ·  ${active.size - 1} more waiting" else "", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val left = j.remaining?.let { ms -> if (ms > 90_000) " · ${ms / 60_000} min left" else " · ${(ms / 1000).coerceAtLeast(1)} s left" } ?: ""
-                    Text(pr?.let { "${formatBytes(it.done)} of ${formatBytes(it.total)}$left · ${it.current}" } ?: "Getting ready…", style = MaterialTheme.typography.bodySmall, color = p.secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val stage = if (j.state == "waiting") "Waiting to start" else "Starting download from your computer"
+                    Text(pr?.let { "${formatBytes(it.done)} of ${formatBytes(it.total)}$left · ${it.current}" } ?: stage, style = MaterialTheme.typography.bodySmall, color = p.secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 TextButton(onClick = { Jobs.cancel(j) }) { Text("Cancel", color = p.danger) }
             }

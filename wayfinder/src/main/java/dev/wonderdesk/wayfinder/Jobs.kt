@@ -130,7 +130,7 @@ class JobService : Service() {
         val left = j?.remaining?.let { ms -> " · " + if (ms > 90_000) "${ms / 60_000} min left" else "${(ms / 1000).coerceAtLeast(1)} s left" } ?: ""
         return Notification.Builder(this, CH).setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle((j?.label ?: "Working") + (pct?.let { " · $it%" } ?: ""))
-            .setContentText((p?.let { "${dev.wonderdesk.shared.formatBytes(it.done)} of ${dev.wonderdesk.shared.formatBytes(it.total)} · ${it.current}" } ?: "Preparing") + left + if (waiting > 0) " · $waiting more waiting" else "")
+            .setContentText((p?.let { "${dev.wonderdesk.shared.formatBytes(it.done)} of ${dev.wonderdesk.shared.formatBytes(it.total)} · ${it.current}" } ?: "Starting ${j?.label}") + left + if (waiting > 0) " · $waiting more waiting" else "")
             .setProgress(100, pct ?: 0, pct == null).setOngoing(true).setOnlyAlertOnce(true)
             .setContentIntent(PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
             .addAction(Notification.Action.Builder(null, "Cancel", cancel).build()).build()

@@ -1,5 +1,10 @@
 # Wayfinder changelog
 
+## v0.5.21
+
+- Opening a Ripple file now shows live progress from the first byte with time left, instead of a spinner with no numbers
+- Cancel in the progress card or the notification now stops the download at once, even on a stalled connection. A short file that ends early reports the cutoff instead of opening half a file
+
 ## v0.5.20
 
 - Ripple file paths stay absolute on the phone side. Photos and other files in the Ripple folder open instead of reporting a relative path as missing

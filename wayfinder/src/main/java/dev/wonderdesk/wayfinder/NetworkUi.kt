@@ -295,12 +295,34 @@ object RippleDocs {
             RippleLink.openRead(c, peer.fp, doc.id.substringAfter('|'))
         else c.contentResolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(grant((peer as RipplePeer.Grant).tree.toString()), doc.id))
         val t = Ops.uniqueName(dest, doc.name)
+        var got = 0L
         stream?.use { i ->
-            t.outputStream().use { o ->
-                val b = ByteArray(256 * 1024)
-                while (true) { if (Ops.cancel) throw Cancelled(); val n = i.read(b); if (n < 0) break; o.write(b, 0, n); onBytes(n.toLong()) }
+            // Tapping Cancel must stop even a stalled read right away: a watcher
+            // closes the stream the moment cancel trips, which unblocks read.
+            var finished = false
+            val closer = Thread {
+                while (!finished && !Ops.cancel) { try { Thread.sleep(100) } catch (_: InterruptedException) { break } }
+                if (!finished) runCatching { i.close() }
+            }.apply { isDaemon = true; start() }
+            try {
+                t.outputStream().use { o ->
+                    val b = ByteArray(256 * 1024)
+                    while (true) {
+                        if (Ops.cancel) throw Cancelled()
+                        val n = try { i.read(b) } catch (e: java.io.IOException) { if (Ops.cancel) throw Cancelled() else throw e }
+                        if (n < 0) break
+                        o.write(b, 0, n); got += n; onBytes(n.toLong())
+                    }
+                }
+            } finally {
+                finished = true; closer.interrupt()
             }
         } ?: throw java.io.FileNotFoundException("Couldn't open ${doc.name}")
+        if (Ops.cancel) throw Cancelled()
+        if (doc.size > 0 && got + 1024 < doc.size) {
+            runCatching { t.delete() }
+            throw java.io.IOException("Download of ${doc.name} stopped at ${dev.wonderdesk.shared.formatBytes(got)} of ${dev.wonderdesk.shared.formatBytes(doc.size)}. Check the connection and try again.")
+        }
         if (doc.modified > 0) t.setLastModified(doc.modified)
     }
 }
@@ -578,6 +600,7 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
                                 else runOp("Opening ${e.name}") { rep ->
                                     val d = File(context.cacheDir, "net").apply { deleteRecursively(); mkdirs() }
                                     var done = 0L
+                                    rep(Progress(0, e.size.coerceAtLeast(1), e.name))
                                     SmbSession.open(server).use { s -> s.download(e, d) { n -> done += n; rep(Progress(done, e.size.coerceAtLeast(done), e.name)) } }
                                     val f = File(d, e.name)
                                     scope.launch { openFile(context, f) { toastRef.value(it) } }
@@ -652,6 +675,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
         runOp("Opening ${e.name}") { rep ->
             val d = File(context.cacheDir, "ripple").apply { deleteRecursively(); mkdirs() }
             var done = 0L; Ops.cancel = false
+            rep(Progress(0, e.size.coerceAtLeast(1), e.name))
             RippleDocs.download(context, peer, e, d) { n -> done += n; rep(Progress(done, e.size.coerceAtLeast(done), e.name)) }
             val f = File(d, e.name)
             scope.launch { openFile(context, f) { toastRef.value(it) } }
