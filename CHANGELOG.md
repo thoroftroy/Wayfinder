@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.31
+
+- Sharing (Stop) and file jobs (Cancel) also show as a card on the Wonderdesk Launcher's floating button, when it is in use
+
 ## v0.5.30
 
 - Fixed tapping a playing video never bringing the controls back

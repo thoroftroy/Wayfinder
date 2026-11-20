@@ -140,7 +140,18 @@ class JobService : Service() {
         val now = System.currentTimeMillis(); if (now - lastPost < 400) return; lastPost = now
         if (Jobs.active.isEmpty()) return
         runCatching { getSystemService(NotificationManager::class.java).notify(ID, build()) }
+        card()
     }
 
-    override fun onDestroy() { instance = null; runCatching { if (wake?.isHeld == true) wake?.release() }; super.onDestroy() }
+    /** The same job, with its Cancel button, on the Wonderdesk Launcher's floating button. */
+    private fun card() {
+        val j = Jobs.all.firstOrNull { it.state == "running" } ?: Jobs.active.firstOrNull() ?: return
+        val p = j.progress
+        val pct = p?.let { (it.done * 100 / it.total.coerceAtLeast(1)).toInt().coerceIn(0, 100) } ?: -1
+        val cancel = PendingIntent.getService(this, 2, Intent(this, JobService::class.java).setAction("cancel"), PendingIntent.FLAG_IMMUTABLE)
+        dev.wonderdesk.shared.WonderAssist.post(this, "wayfinder", "job", j.label + (if (pct >= 0) " · $pct%" else ""), p?.let { "${dev.wonderdesk.shared.formatBytes(it.done)} of ${dev.wonderdesk.shared.formatBytes(it.total)}" },
+            listOf("Cancel" to cancel), PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE), ongoing = true, progress = pct)
+    }
+
+    override fun onDestroy() { instance = null; runCatching { dev.wonderdesk.shared.WonderAssist.clear(this, "wayfinder", "job") }; runCatching { if (wake?.isHeld == true) wake?.release() }; super.onDestroy() }
 }

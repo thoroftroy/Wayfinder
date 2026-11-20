@@ -105,6 +105,7 @@ class ShareService : Service() {
             .setContentText(if (ip == null) "Connect to Wi-Fi to share" else text).setContentIntent(open).setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build()).build()
         if (Build.VERSION.SDK_INT >= 34) startForeground(7, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) else startForeground(7, n)
+        dev.wonderdesk.shared.WonderAssist.post(this, "wayfinder", "share", "Sharing ${folderLabel(c.root)}", if (ip == null) "Connect to Wi-Fi to share" else text, listOf("Stop" to stop), open, ongoing = true)
     }
 
     private fun idleWatch() {
