@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.5.30
+
+- Fixed tapping a playing video never bringing the controls back
+
 ## v0.5.29
 
 - Videos and music on a Ripple computer open straight in Cinema or Bliss Player without asking, and start playing before the file has downloaded
