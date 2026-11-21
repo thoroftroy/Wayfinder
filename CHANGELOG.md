@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.6.4
+
+- Forgot the Safe folder password? After three wrong tries, the unlock screen offers to erase the Safe folder so you can set a new password
+
 ## v0.6.3
 
 - Videos and photos open in Memories (Cinema has been merged into it), and a folder of videos opens as a whole folder to swipe through

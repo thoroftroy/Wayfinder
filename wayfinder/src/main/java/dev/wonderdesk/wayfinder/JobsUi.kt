@@ -91,6 +91,7 @@ fun SafePasswordDialog(onDismiss: () -> Unit, onOpen: () -> Unit) {
     var saveToVault by remember { mutableStateOf(true) }
     var autoGo by remember { mutableStateOf(false) }
     var forgot by remember { mutableStateOf(false) }
+    var fails by remember { mutableIntStateOf(0) }
     val hasVault = remember { runCatching { context.packageManager.getPackageInfo("dev.wonderdesk.vault", 0); true }.getOrDefault(false) }
     // Vault keeps the Safe folder password with your others: unlock Vault (fingerprint or master password) and it fills it in.
     val fromVault = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
@@ -104,7 +105,7 @@ fun SafePasswordDialog(onDismiss: () -> Unit, onOpen: () -> Unit) {
             val r = withContext(Dispatchers.Default) { runCatching { if (setUp) Safe.unlock(context, pw) else { Safe.setUp(context, pw, hint); true } } }
             busy = false
             r.onSuccess { ok ->
-                if (!ok) error = "That's not the Safe folder password"
+                if (!ok) { fails++; error = if (fails >= 3) "That's not the Safe folder password. Forgotten it? You can erase the Safe folder below and start again." else "That's not the Safe folder password" }
                 else if (!setUp && hasVault && saveToVault) toVault.launch(android.content.Intent("dev.wonderdesk.vault.SAVE").setPackage("dev.wonderdesk.vault").putExtra("title", "Wayfinder Safe folder").putExtra("password", pw))
                 else onOpen()
             }.onFailure { error = it.message }
@@ -123,7 +124,7 @@ fun SafePasswordDialog(onDismiss: () -> Unit, onOpen: () -> Unit) {
             if (hasVault && setUp) WButton("Use the password in Vault", { fromVault.launch(android.content.Intent("dev.wonderdesk.vault.PICK").setPackage("dev.wonderdesk.vault").putExtra("title", "Wayfinder Safe folder")) },
                 Modifier.fillMaxWidth(), icon = WonderIcons.Key)
             if (hasVault && !setUp) SwitchRow("Keep it in Vault", saveToVault, { saveToVault = it }, subtitle = "So you can unlock the Safe folder from Vault later")
-            if (setUp) TextButton(onClick = { forgot = true }) { Text("Forgot the password? Erase everything", color = p.danger) }
+            if (setUp && fails >= 3) TextButton(onClick = { forgot = true }) { Text("Forgot the password? Erase everything", color = p.danger) }
             if (busy) LoadingStatus("Setting up your Safe folder", detail = "Encrypting the key with your password", compact = true)
             error?.let { Text(it, color = p.danger, style = MaterialTheme.typography.bodySmall) }
         }
