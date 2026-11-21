@@ -217,9 +217,13 @@ object Safe {
     }
 
     /** A temporary decrypted copy for viewing; wiped when you leave the Safe folder. */
+    /** Where the readable copy of an item lives while you look at it (wiped when you leave or lock the Safe folder). */
+    fun tempFile(c: Context, item: Item) = File(File(c.cacheDir, "safe-view/${item.id}"), item.name)
+
     fun openTemp(c: Context, item: Item): File {
-        val d = File(c.cacheDir, "safe-view").apply { mkdirs() }
-        val f = File(d, item.name)
+        val f = tempFile(c, item)
+        if (f.isFile && f.length() == item.size) return f
+        f.parentFile?.mkdirs()
         copyOut(item, f, c, null)
         return f
     }

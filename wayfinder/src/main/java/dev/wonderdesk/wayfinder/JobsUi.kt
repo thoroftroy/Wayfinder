@@ -155,7 +155,16 @@ fun SafeScreen(onTab: (String) -> Unit) {
     LaunchedEffect(resumed) { if (!resumed) Safe.wipeTemp(context) else if (!Safe.unlocked) { unlocked = false; items = null } }
     LaunchedEffect(unlocked, tick) { if (unlocked) items = withContext(Dispatchers.IO) { runCatching { Safe.items(context) }.getOrDefault(emptyList()) } }
     JobListener { j -> tick++; if (j.state == "failed") toastRef.value(j.error ?: "Something went wrong") else if (j.state == "done" && j.label.startsWith("Move out")) toastRef.value("Moved out of the Safe folder") }
-    fun open(item: Safe.Item) = Jobs.enqueue(context, "Opening ${item.name}") { _ -> val f = Safe.openTemp(context, item); scope.launch { if (Preview.canShow(f)) Preview.show(listOf(f), 0, private = true) else toastRef.value("No preview for this kind of file. Move it out of the Safe folder to open it in another app") } }
+    fun open(item: Safe.Item) = Jobs.enqueue(context, "Opening ${item.name}") { _ ->
+        val f = Safe.openTemp(context, item)
+        // The whole Safe folder is there to swipe through, like any other folder; the others are decrypted as you reach them.
+        val all = (items ?: listOf(item)).filter { Preview.canShow(Safe.tempFile(context, it)) }
+        val files = all.map { Safe.tempFile(context, it) }
+        scope.launch {
+            if (Preview.canShow(f)) Preview.showPrivate(files, files.indexOf(f).coerceAtLeast(0)) { target -> all.firstOrNull { Safe.tempFile(context, it) == target }?.let { Safe.openTemp(context, it) } }
+            else toastRef.value("No preview for this kind of file. Move it out of the Safe folder to open it in another app")
+        }
+    }
     WonderApp(appName = "Wayfinder", about = ABOUT_SAFE, tabs = TABS, selectedTab = "home", onTab = onTab, title = "Safe folder", onBack = { Safe.lock(); onTab("home") },
         actions = { if (unlocked) ToolbarButton(WonderIcons.Lock, "Lock", { Safe.lock(); Safe.wipeTemp(context); unlocked = false; items = null }) },
         menu = if (Safe.isSetUp(context)) listOf(WonderMenuItem("Change password", WonderIcons.Key) { changing = true }, WonderMenuItem("Erase Safe folder", WonderIcons.DeleteSweep, danger = true) { erasing = true }) else emptyList()) {

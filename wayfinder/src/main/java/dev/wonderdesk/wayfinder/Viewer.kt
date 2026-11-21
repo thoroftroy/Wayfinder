@@ -56,10 +56,13 @@ import java.io.File
  * the matching Wonderdesk app isn't installed.
  */
 object Preview {
-    data class Request(val files: List<File>, val start: Int, val private: Boolean)
+    data class Request(val files: List<File>, val start: Int, val private: Boolean, val prepare: ((File) -> Unit)? = null)
     var current by mutableStateOf<Request?>(null)
     fun canShow(f: File) = f.kind() in setOf(Kind.Image, Kind.Video, Kind.Audio, Kind.Text, Kind.Code, Kind.Pdf)
     fun show(files: List<File>, start: Int, private: Boolean = false) { current = Request(files.filter(::canShow).ifEmpty { files }, start.coerceAtLeast(0), private) }
+    /** Safe folder: every file in the folder can be swiped to; each one is made readable only when you reach it. */
+    fun showPrivate(files: List<File>, start: Int, prepare: (File) -> Unit) { current = Request(files, start.coerceIn(0, (files.size - 1).coerceAtLeast(0)), true, prepare) }
+
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -78,6 +81,9 @@ fun MediaViewer(req: Preview.Request, onClose: () -> Unit) {
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }.viewerBackdrop(c, fadeOut)) {
             HorizontalPager(pager, Modifier.fillMaxSize(), beyondBoundsPageCount = 1, key = { files[it].path }) { i ->
                 val f = files[i]
+                // Safe folder pages are decrypted the moment you reach them.
+                val ready by produceState(req.prepare == null || f.isFile, f) { if (!value) { withContext(Dispatchers.IO) { runCatching { req.prepare?.invoke(f) } }; value = f.isFile } }
+                if (!ready) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White) } else
                 when (f.kind()) {
                     Kind.Image -> ZoomImage(f, onTap = { chrome = !chrome }, onDismiss = onClose, onFade = { fadeOut = 1f - it * .85f; if (it > .05f) chrome = false })
                     Kind.Video, Kind.Audio -> WonderVideo(android.net.Uri.fromFile(f), active = pager.currentPage == i && !pager.isScrollInProgress, controls = chrome,
@@ -94,6 +100,11 @@ fun MediaViewer(req: Preview.Request, onClose: () -> Unit) {
                 val f = files.getOrNull(pager.currentPage)
                 ViewerTopBar(f?.name.orEmpty(), listOfNotNull(f?.let { formatBytes(it.length()) }, if (files.size > 1) "${pager.currentPage + 1} of ${files.size}" else null, if (req.private) "Safe folder" else null).joinToString(" · "),
                     onBack = onClose) {
+                    if (req.private && f != null && f.isFile && f.kind() == Kind.Image) HudButton(WonderIcons.Edit, "Edit", c, 44.dp) {
+                        // Edit in Memories (a readable copy is handed over for this one action; the original stays in the Safe folder).
+                        runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_EDIT).setDataAndType(androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", f), "image/*")
+                            .setPackage("dev.wonderdesk.memories").addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) }
+                    }
                     if (!req.private && f != null) HudButton(WonderIcons.Share, "Share", c, 44.dp) { context.share(androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", f), f.mime()) {} }
                 }
             }
