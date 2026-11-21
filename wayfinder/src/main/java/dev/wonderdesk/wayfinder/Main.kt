@@ -629,7 +629,7 @@ fun openFile(context: Context, f: File, report: (String) -> Unit) {
         Kind.Text, Kind.Code -> "dev.wonderdesk.scribble"
         Kind.Pdf -> "dev.wonderdesk.pages"
         Kind.Image -> "dev.wonderdesk.memories"
-        Kind.Video -> "dev.wonderdesk.cinema"
+        Kind.Video -> "dev.wonderdesk.memories"
         Kind.Audio -> "com.blissplayer.music.debug"
         else -> null
     }
@@ -641,7 +641,7 @@ fun openFile(context: Context, f: File, report: (String) -> Unit) {
     // A photo or video opens in Memories with the rest of its folder to swipe through, and Back returns here: not the whole phone's gallery.
     if (f.kind() == Kind.Image || f.kind() == Kind.Video) {
         val sibs = f.parentFile?.listFiles()?.filter { it.isFile && (it.kind() == Kind.Image || it.kind() == Kind.Video) }?.sortedBy { it.name.lowercase() }.orEmpty()
-        val folder = Intent(base).setPackage("dev.wonderdesk.memories")
+        val folder = Intent(base).setClassName("dev.wonderdesk.memories", "dev.wonderdesk.memories.MainActivity")
         if (sibs.size > 1 && context.packageManager.queryIntentActivities(folder, 0).isNotEmpty()) {
             val uris = sibs.map { FileProvider.getUriForFile(context, "${context.packageName}.files", it) }
             val clip = android.content.ClipData.newRawUri("folder", uris[0]); uris.drop(1).forEach { clip.addItem(android.content.ClipData.Item(it)) }

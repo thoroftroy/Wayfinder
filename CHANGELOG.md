@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.6.3
+
+- Videos and photos open in Memories (Cinema has been merged into it), and a folder of videos opens as a whole folder to swipe through
+
 ## v0.6.2
 
 - Wayfinder has your new icon: a tall ship sailing in front of a folder

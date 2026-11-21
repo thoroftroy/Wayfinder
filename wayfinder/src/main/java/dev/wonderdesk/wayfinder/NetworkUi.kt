@@ -112,7 +112,7 @@ object RippleShare {
         val intent = (if (edit) Intent(Intent.ACTION_EDIT) else Intent(Intent.ACTION_VIEW)).setDataAndType(uri, type)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or if (edit) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
         if (!edit && (type.startsWith("video/") || type.startsWith("audio/"))) {
-            val direct = Intent(intent).setPackage(if (type.startsWith("video/")) "dev.wonderdesk.cinema" else "com.blissplayer.music.debug")
+            val direct = Intent(intent).setPackage(if (type.startsWith("video/")) "dev.wonderdesk.memories" else "com.blissplayer.music.debug")
             if (c.packageManager.queryIntentActivities(direct, 0).isNotEmpty()) { c.startActivity(direct.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return@runCatching true }
         }
         c.startActivity(Intent.createChooser(intent, (if (edit) "Edit " else "Open ") + name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -687,7 +687,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
             is RipplePeer.Link -> RippleLink.viewUri(pr.fp, d.id.substringAfter('|'), d.name, "${d.size}-${d.modified}")
             is RipplePeer.Grant -> DocumentsContract.buildDocumentUriUsingTree(pr.tree, d.id)
         } }
-        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uris[at], docMime(e)).setPackage("dev.wonderdesk.memories")
+        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uris[at], docMime(e)).setClassName("dev.wonderdesk.memories", "dev.wonderdesk.memories.MainActivity")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         if (context.packageManager.queryIntentActivities(intent, 0).isEmpty()) return false
         val clip = android.content.ClipData.newRawUri("folder", uris[0]); uris.drop(1).forEach { clip.addItem(android.content.ClipData.Item(it)) }
@@ -701,8 +701,8 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
         val type = e.mime.ifBlank { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(e.name.substringAfterLast('.', "").lowercase()) ?: "*/*" }
         val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         intent.clipData = android.content.ClipData.newRawUri(e.name, uri)
-        // Videos open in Cinema and music in Bliss Player straight away, without asking.
-        val player = when { type.startsWith("video/") -> "dev.wonderdesk.cinema"; type.startsWith("audio/") -> "com.blissplayer.music.debug"; else -> null }
+        // Videos open in Memories and music in Bliss Player straight away, without asking.
+        val player = when { type.startsWith("video/") -> "dev.wonderdesk.memories"; type.startsWith("audio/") -> "com.blissplayer.music.debug"; else -> null }
         val direct = player?.let { Intent(intent).setPackage(it) }
         if (direct != null && context.packageManager.queryIntentActivities(direct, 0).isNotEmpty()) context.startActivity(direct.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         else context.startActivity(Intent.createChooser(intent, "Open " + e.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
