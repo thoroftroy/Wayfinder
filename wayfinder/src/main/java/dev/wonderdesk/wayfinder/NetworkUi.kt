@@ -331,6 +331,7 @@ object RippleDocs {
             throw java.io.IOException("Download of ${doc.name} stopped at ${dev.wonderdesk.shared.formatBytes(got)} of ${dev.wonderdesk.shared.formatBytes(doc.size)}. Check the connection and try again.")
         }
         if (doc.modified > 0) t.setLastModified(doc.modified)
+        MediaScan.add(t)
     }
 }
 
@@ -338,7 +339,9 @@ fun downloadFromNet(c: NetClip, dest: File, rep: (Progress) -> Unit) {
     val total = c.entries.sumOf { if (it.isDir) 0L else it.size }.coerceAtLeast(1)
     var done = 0L
     Ops.cancel = false
+    val started = System.currentTimeMillis() - 2000
     SmbSession.open(c.server).use { s -> c.entries.forEach { e -> s.download(e, dest) { n -> done += n; rep(Progress(done, maxOf(total, done), e.name)) } } }
+    dest.walkTopDown().filter { it.isFile && it.lastModified() >= started - 86_400_000L * 365 && it.length() > 0 }.take(2000).forEach { MediaScan.add(it) }
 }
 
 private const val NET_ABOUT = "Browse Windows, Mac, Linux and NAS shares (SMB), and share this phone's files over Wi-Fi with FTP and a web page."
@@ -771,6 +774,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
         },
         menu = listOfNotNull(
             if (selected.size == 1) WonderMenuItem("Rename", WonderIcons.DriveFileRenameOutline) { dialog = "rename" } else null,
+            if (selection.size == 1 && !selection[0].isDir) WonderMenuItem("Edit, save or copy path", WonderIcons.Edit) { menuDoc = selection[0] } else null,
             WonderMenuItem("Open in Ripple app", WonderIcons.DeveloperBoard) { RippleShare.open(context, computer.fp) },
         )) {
         toastRef.value = LocalToast.current
@@ -788,11 +792,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
                         ListRow(e.name, Modifier.panelItem(i, current.size), subtitle = (if (e.isDir) "Folder" else formatBytes(e.size)) + " · " + dev.wonderdesk.shared.relativeTime(e.modified),
                             leading = { if (peer is RipplePeer.Link && isMedia(e) && e.size < 60L * 1024 * 1024) RemoteThumb(RippleLink.viewUri((peer as RipplePeer.Link).fp, e.id.substringAfter('|'), e.name, "${e.size}-${e.modified}"), docMime(e).startsWith("video/"), e.size, 40.dp) { IconTile(icon, tint, 40.dp) } else IconTile(icon, tint, 40.dp) }, selected = sel,
                             trailing = if (selected.isNotEmpty()) ({ Checkbox(sel, { on -> selected = if (on) selected + e.id else selected - e.id }) }) else null,
-                            onLongClick = {
-                                if (selected.isNotEmpty()) selected = selected + e.id
-                                else if (e.isDir) selected = selected + e.id
-                                else menuDoc = e
-                            },
+                            onLongClick = { selected = selected + e.id },
                             onClick = {
                                 if (selected.isNotEmpty()) selected = if (sel) selected - e.id else selected + e.id
                                 else if (e.isDir) { stack = stack + e.id; selected = emptySet() }

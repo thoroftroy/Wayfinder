@@ -82,7 +82,7 @@ object Ops {
             if (src.parentFile == dest && move) continue
             require(!dest.canonicalPath.startsWith(src.canonicalPath + "/") && dest.canonicalPath != src.canonicalPath || !src.isDirectory) { "Can't put a folder inside itself" }
             val target = uniqueName(dest, src.name)
-            if (move && src.renameTo(target)) { done += totalSize(target); onProgress(Progress(done, total, src.name)); continue }
+            if (move && src.renameTo(target)) { MediaScan.add(target); (if (src.isDirectory) emptyList() else listOf(src.path)).forEach { MediaScan.gone(it) }; done += totalSize(target); onProgress(Progress(done, total, src.name)); continue }
             fun copyOne(s: File, t: File) {
                 if (cancel) throw Cancelled()
                 if (s.isDirectory) { t.mkdirs(); s.listFiles()?.forEach { copyOne(it, File(t, it.name)) } }
@@ -91,8 +91,10 @@ object Ops {
                     while (true) { if (cancel) throw Cancelled(); val n = i.read(buf); if (n < 0) break; o.write(buf, 0, n); done += n; onProgress(Progress(done, total, s.name)) }
                 } }.also { t.setLastModified(s.lastModified()) }
             }
+            val oldPaths = if (move && src.isDirectory) src.walkTopDown().filter { it.isFile }.map { it.path }.toList() else listOf(src.path)
             copyOne(src, target)
-            if (move) src.deleteRecursively()
+            MediaScan.add(target)
+            if (move) { src.deleteRecursively(); oldPaths.forEach { MediaScan.gone(it) } }
         }
     }
 

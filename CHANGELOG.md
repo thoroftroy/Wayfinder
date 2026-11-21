@@ -1,5 +1,12 @@
 # Wayfinder changelog
 
+## v0.6.6
+
+- The animated background is now drawn directly on the screen at full sharpness instead of a small picture stretched up, so it is smooth and no longer looks pixelated; the grain over it is much subtler, and long tab names (like Feedback) shrink to fit instead of being cut off
+- Long-press selects a file or folder (in the Safe folder and on computer folders too) so you can pick many and move, save or delete them together
+- A Sort button on the toolbar (name, date, size, type, either direction); folders now default to most recently changed first
+- Files you save, move or download show up in Memories and other gallery apps straight away
+
 ## v0.6.5
 
 - Safe folder: a photo or video you open now sits in the whole folder, so you can swipe to the others like any normal folder, and photos have an Edit button that opens them in the Memories editor

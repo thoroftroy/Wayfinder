@@ -73,6 +73,7 @@ object Jobs {
             j.state = when { r.isSuccess -> "done"; r.exceptionOrNull() is Cancelled || j.cancelled -> "cancelled"; else -> "failed" }
             j.error = r.exceptionOrNull()?.takeIf { it !is Cancelled }?.let { it.message ?: it.javaClass.simpleName }
             Ops.cancel = false
+            MediaScan.flush(c)   // new, moved or removed files show up in Memories and every other gallery right away
             listeners.toList().forEach { it(j) }
             JobService.update(c)
         }
@@ -154,4 +155,17 @@ class JobService : Service() {
     }
 
     override fun onDestroy() { instance = null; runCatching { dev.wonderdesk.shared.WonderAssist.clear(this, "wayfinder", "job") }; runCatching { if (wake?.isHeld == true) wake?.release() }; super.onDestroy() }
+}
+
+
+/** Tells Android's media library about files that were saved, moved or removed, so photos and videos appear (or go) in Memories and other apps without waiting. */
+object MediaScan {
+    private val pending = java.util.concurrent.ConcurrentLinkedQueue<String>()
+    fun add(f: java.io.File) { if (f.isDirectory) f.walkTopDown().filter { it.isFile }.forEach { pending.add(it.path) } else pending.add(f.path) }
+    /** For something that no longer exists (a moved or deleted original): scanning its old path removes it from the library. */
+    fun gone(path: String) { pending.add(path) }
+    fun flush(c: Context) {
+        val paths = generateSequence { pending.poll() }.distinct().toList()
+        if (paths.isNotEmpty()) runCatching { android.media.MediaScannerConnection.scanFile(c.applicationContext, paths.toTypedArray(), null, null) }
+    }
 }

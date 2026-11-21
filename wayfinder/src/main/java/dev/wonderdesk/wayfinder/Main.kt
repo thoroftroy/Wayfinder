@@ -254,7 +254,7 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                 var ts by remember { mutableIntStateOf(prefs.getInt("tileSize", 104)) }
                 Column(Modifier.padding(16.dp, 10.dp)) { Text("Grid tile size: $ts dp", style = MaterialTheme.typography.labelLarge); Slider(ts.toFloat(), { ts = it.toInt() }, valueRange = 64f..200f, onValueChangeFinished = { prefs.edit().putInt("tileSize", ts).apply() }) }
                 PanelDivider()
-                var ds by remember { mutableStateOf(prefs.getBoolean("desc", false)) }
+                var ds by remember { mutableStateOf(prefs.getBoolean("desc", true)) }
                 SwitchRow("Reverse the sort order", ds, { ds = it; prefs.edit().putBoolean("desc", it).apply() }, icon = WonderIcons.Sort, tint = Color(0xFF2E9E44))
             }
         }) {
@@ -386,8 +386,8 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
     val prefs = remember { context.prefs("wayfinder") }
     val p = wonderPalette()
     val scope = rememberCoroutineScope()
-    var sort by rememberSaveable { mutableStateOf(runCatching { SortBy.valueOf(prefs.getString("sort", "Name")!!) }.getOrDefault(SortBy.Name)) }
-    var desc by rememberSaveable { mutableStateOf(prefs.getBoolean("desc", false)) }
+    var sort by rememberSaveable { mutableStateOf(runCatching { SortBy.valueOf(prefs.getString("sort", "Date")!!) }.getOrDefault(SortBy.Date)) }
+    var desc by rememberSaveable { mutableStateOf(prefs.getBoolean("desc", true)) }
     var grid by rememberSaveable { mutableStateOf(prefs.getBoolean("grid", false)) }
     var hidden by rememberSaveable { mutableStateOf(prefs.getBoolean("hidden", false)) }
     var files by remember { mutableStateOf<List<Entry>?>(null) }
@@ -463,6 +463,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                 })
             } else {
                 ToolbarButton(WonderIcons.Search, "Search", { searching = !searching; if (!searching) query = "" })
+                ToolbarButton(WonderIcons.Sort, "Sort: ${sort.label}, ${if (sort == SortBy.Name || sort == SortBy.Type) (if (desc) "Z to A" else "A to Z") else (if (desc) "newest or largest first" else "oldest or smallest first")}", { dialog = "sort" })
                 if (category == null) ToolbarButton(WonderIcons.CreateNewFolder, "New folder", { dialog = "mkdir" })
                 ToolbarButton(if (grid) WonderIcons.ViewList else WonderIcons.GridView, if (grid) "List view" else "Grid view", { grid = !grid; prefs.edit().putBoolean("grid", grid).apply() })
             }

@@ -147,6 +147,10 @@ fun SafeScreen(onTab: (String) -> Unit) {
     var menuFor by remember { mutableStateOf<Safe.Item?>(null) }
     var renaming by remember { mutableStateOf<Safe.Item?>(null) }
     var deleting by remember { mutableStateOf<Safe.Item?>(null) }
+    // Long-press starts picking several items to move out or delete at once.
+    var picked by remember { mutableStateOf(setOf<String>()) }
+    var deletingMany by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(picked.isNotEmpty()) { picked = emptySet() }
     var changing by remember { mutableStateOf(false) }
     var erasing by remember { mutableStateOf(false) }
     var asking by remember { mutableStateOf(!Safe.unlocked) }
@@ -165,8 +169,14 @@ fun SafeScreen(onTab: (String) -> Unit) {
             else toastRef.value("No preview for this kind of file. Move it out of the Safe folder to open it in another app")
         }
     }
-    WonderApp(appName = "Wayfinder", about = ABOUT_SAFE, tabs = TABS, selectedTab = "home", onTab = onTab, title = "Safe folder", onBack = { Safe.lock(); onTab("home") },
-        actions = { if (unlocked) ToolbarButton(WonderIcons.Lock, "Lock", { Safe.lock(); Safe.wipeTemp(context); unlocked = false; items = null }) },
+    WonderApp(appName = "Wayfinder", about = ABOUT_SAFE, tabs = TABS, selectedTab = "home", onTab = onTab, title = if (picked.isNotEmpty()) "${picked.size} selected" else "Safe folder", onBack = { if (picked.isNotEmpty()) picked = emptySet() else { Safe.lock(); onTab("home") } },
+        actions = {
+            if (unlocked && picked.isNotEmpty()) {
+                ToolbarButton(WonderIcons.SelectAll, "Select all", { picked = items.orEmpty().map { it.id }.toSet() })
+                ToolbarButton(WonderIcons.LockOpen, "Move out of Safe folder", { val sel = items.orEmpty().filter { it.id in picked }; picked = emptySet(); sel.forEach { item -> Jobs.enqueue(context, "Move out: ${item.name}") { job -> Safe.restore(context, item, job) } } })
+                ToolbarButton(WonderIcons.Delete, "Delete forever", { deletingMany = true })
+            } else if (unlocked) ToolbarButton(WonderIcons.Lock, "Lock", { Safe.lock(); Safe.wipeTemp(context); unlocked = false; items = null })
+        },
         menu = if (Safe.isSetUp(context)) listOf(WonderMenuItem("Change password", WonderIcons.Key) { changing = true }, WonderMenuItem("Erase Safe folder", WonderIcons.DeleteSweep, danger = true) { erasing = true }) else emptyList()) {
         toastRef.value = LocalToast.current
         Box(Modifier.fillMaxSize()) {
@@ -185,8 +195,9 @@ fun SafeScreen(onTab: (String) -> Unit) {
                         val (icon, tint) = kindIcon(kindOf(it.name))
                         Box {
                             ListRow(it.name, Modifier.panelItem(i, list.size), subtitle = formatBytes(it.size) + " · added " + relativeTime(it.added).replaceFirstChar { c -> c.lowercase() }, leading = { IconTile(icon, tint, 40.dp) },
-                                onLongClick = { menuFor = it }, onClick = { open(it) },
-                                trailing = { IconButton(onClick = { menuFor = it }) { Icon(WonderIcons.MoreVert, "Options", tint = p.secondaryText) } })
+                                selected = it.id in picked,
+                                onLongClick = { picked = picked + it.id }, onClick = { if (picked.isNotEmpty()) picked = if (it.id in picked) picked - it.id else picked + it.id else open(it) },
+                                trailing = { if (picked.isNotEmpty()) Checkbox(it.id in picked, { on -> picked = if (on) picked + it.id else picked - it.id }) else IconButton(onClick = { menuFor = it }) { Icon(WonderIcons.MoreVert, "Options", tint = p.secondaryText) } })
                             DropdownMenu(menuFor == it, { menuFor = null }) {
                                 DropdownMenuItem({ Text("Move out of Safe folder") }, { val item = it; menuFor = null; Jobs.enqueue(context, "Move out: ${item.name}") { job -> Safe.restore(context, item, job) } }, leadingIcon = { Icon(WonderIcons.LockOpen, null) })
                                 DropdownMenuItem({ Text("Rename") }, { renaming = it; menuFor = null }, leadingIcon = { Icon(WonderIcons.DriveFileRenameOutline, null) })
@@ -205,6 +216,8 @@ fun SafeScreen(onTab: (String) -> Unit) {
         }
     }
     if (asking) SafePasswordDialog(onDismiss = { asking = false }) { asking = false; unlocked = true; tick++ }
+    if (deletingMany) ConfirmDialog("Delete ${picked.size} item${if (picked.size == 1) "" else "s"} forever?", "Items in the Safe folder don't go to the recycle bin.", "Delete",
+        onConfirm = { val sel = items.orEmpty().filter { it.id in picked }; picked = emptySet(); deletingMany = false; scope.launch { withContext(Dispatchers.IO) { sel.forEach { Safe.delete(context, it) } }; tick++ } }, onDismiss = { deletingMany = false }, danger = true)
     renaming?.let { it -> InputDialog("Rename", "Name", initial = it.name, onDismiss = { renaming = null }) { n -> val item = it; scope.launch { withContext(Dispatchers.IO) { Safe.rename(context, item, n) }; tick++ } } }
     deleting?.let { it -> ConfirmDialog("Delete “${it.name}” forever?", "Items in the Safe folder don't go to the recycle bin.", "Delete", onConfirm = { val item = it; scope.launch { withContext(Dispatchers.IO) { Safe.delete(context, item) }; tick++ } }, onDismiss = { deleting = null }, danger = true) }
     if (changing) {
