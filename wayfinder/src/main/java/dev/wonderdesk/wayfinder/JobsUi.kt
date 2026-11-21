@@ -90,6 +90,7 @@ fun SafePasswordDialog(onDismiss: () -> Unit, onOpen: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var saveToVault by remember { mutableStateOf(true) }
     var autoGo by remember { mutableStateOf(false) }
+    var forgot by remember { mutableStateOf(false) }
     val hasVault = remember { runCatching { context.packageManager.getPackageInfo("dev.wonderdesk.vault", 0); true }.getOrDefault(false) }
     // Vault keeps the Safe folder password with your others: unlock Vault (fingerprint or master password) and it fills it in.
     val fromVault = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
@@ -122,11 +123,14 @@ fun SafePasswordDialog(onDismiss: () -> Unit, onOpen: () -> Unit) {
             if (hasVault && setUp) WButton("Use the password in Vault", { fromVault.launch(android.content.Intent("dev.wonderdesk.vault.PICK").setPackage("dev.wonderdesk.vault").putExtra("title", "Wayfinder Safe folder")) },
                 Modifier.fillMaxWidth(), icon = WonderIcons.Key)
             if (hasVault && !setUp) SwitchRow("Keep it in Vault", saveToVault, { saveToVault = it }, subtitle = "So you can unlock the Safe folder from Vault later")
+            if (setUp) TextButton(onClick = { forgot = true }) { Text("Forgot the password? Erase everything", color = p.danger) }
             if (busy) LoadingStatus("Setting up your Safe folder", detail = "Encrypting the key with your password", compact = true)
             error?.let { Text(it, color = p.danger, style = MaterialTheme.typography.bodySmall) }
         }
     }, confirmButton = { TextButton(enabled = !busy && pw.length >= (if (setUp) 1 else 4), onClick = { go() }) { Text(if (setUp) "Unlock" else "Create") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+    if (forgot) ConfirmDialog("Erase the Safe folder?", "There is no way to recover a forgotten password. This permanently deletes everything inside the Safe folder and removes the password, so you can set a new one.", "Erase everything",
+        onConfirm = { Safe.erase(context); forgot = false; onDismiss() }, onDismiss = { forgot = false }, danger = true)
 }
 
 private const val ABOUT_SAFE = "The Safe folder has its own password, separate from your screen lock. Files are encrypted with AES-256 and only Wayfinder can read them, only after you unlock."
