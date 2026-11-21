@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.6.5
+
+- Safe folder: a photo or video you open now sits in the whole folder, so you can swipe to the others like any normal folder, and photos have an Edit button that opens them in the Memories editor
+
 ## v0.6.4
 
 - Forgot the Safe folder password? After three wrong tries, the unlock screen offers to erase the Safe folder so you can set a new password
