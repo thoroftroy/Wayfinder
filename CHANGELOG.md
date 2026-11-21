@@ -1,5 +1,10 @@
 # Wayfinder changelog
 
+## v0.6.2
+
+- Wayfinder has your new icon: a tall ship sailing in front of a folder
+- At night the animated background gets a stronger wash, so text stays easy to read on dark scenes
+
 ## v0.6.1
 
 - Each app's animated scene now has its own drifting symbols (maths signs in Abacus, notes in Echo, arrows in Wayfinder and so on), and the scene is a little clearer while text stays easy to read
@@ -14,7 +19,7 @@
 
 ## v0.5.32
 
-- A new Wayfinder icon: a clean folder with the ship
+- The new Wayfinder icon: a tall ship in front of a folder, drawn by you
 - Fixed a gap above the keyboard in screens with a bottom tab bar: the tab bar now steps aside while you type, so you can see what you are writing
 
 ## v0.5.31
