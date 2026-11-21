@@ -1,5 +1,12 @@
 # Wayfinder changelog
 
+## v0.6.0
+
+- Photos and videos open with the rest of their folder to swipe through, for phone folders and for folders on your computers (Ripple), and Back returns to the folder
+- Photos and videos in a computer folder show small previews as you scroll
+- Every app window now has the animated scene behind it, in the app's own colour (for example orange water in Abacus, green in Pulse, purple in Scribble), following your Aqua, Bliss or Super look and the real sunrise and sunset. Motion Reduced shows a still picture and Off turns it off
+- Help buttons (?) explain the more confusing settings
+
 ## v0.5.32
 
 - A new Wayfinder icon: a clean folder with the ship

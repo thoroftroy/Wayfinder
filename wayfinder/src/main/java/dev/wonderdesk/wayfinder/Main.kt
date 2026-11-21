@@ -246,11 +246,11 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                 var sbar by remember { mutableStateOf(prefs.getBoolean("sidebar", true)) }
                 SwitchRow("Sidebar in wide windows", sbar, { sbar = it; prefs.edit().putBoolean("sidebar", it).apply() }, subtitle = "Landscape and tablets show your places on the left", icon = WonderIcons.GridView, tint = Color(0xFF16A085)); PanelDivider()
                 var hid by remember { mutableStateOf(prefs.getBoolean("hidden", false)) }
-                SwitchRow("Show hidden files", hid, { hid = it; prefs.edit().putBoolean("hidden", it).apply() }, icon = WonderIcons.Visibility, tint = Color(0xFF8E44AD)); PanelDivider()
+                SwitchRow("Show hidden files", hid, { hid = it; prefs.edit().putBoolean("hidden", it).apply() }, icon = WonderIcons.Visibility, tint = Color(0xFF8E44AD), help = "Shows files whose names start with a dot. They are usually settings you don't need to touch."); PanelDivider()
                 var gr by remember { mutableStateOf(prefs.getBoolean("grid", false)) }
                 SwitchRow("Show files as a grid", gr, { gr = it; prefs.edit().putBoolean("grid", it).apply() }, icon = WonderIcons.GridView, tint = Color(0xFF1E7FE8)); PanelDivider()
                 var ff by remember { mutableStateOf(prefs.getBoolean("foldersFirst", true)) }
-                SwitchRow("Folders before files", ff, { ff = it; prefs.edit().putBoolean("foldersFirst", it).apply() }, icon = WonderIcons.Folder, tint = Color(0xFFE39A12)); PanelDivider()
+                SwitchRow("Folders before files", ff, { ff = it; prefs.edit().putBoolean("foldersFirst", it).apply() }, icon = WonderIcons.Folder, tint = Color(0xFFE39A12), help = "Lists folders first, then files."); PanelDivider()
                 var ts by remember { mutableIntStateOf(prefs.getInt("tileSize", 104)) }
                 Column(Modifier.padding(16.dp, 10.dp)) { Text("Grid tile size: $ts dp", style = MaterialTheme.typography.labelLarge); Slider(ts.toFloat(), { ts = it.toInt() }, valueRange = 64f..200f, onValueChangeFinished = { prefs.edit().putInt("tileSize", ts).apply() }) }
                 PanelDivider()
@@ -279,7 +279,7 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                 }
             }
             Panel(title = "Protected and shared") {
-                ListRow("Safe folder", subtitle = "Encrypted files behind a password of their own", icon = WonderIcons.Lock, tint = Color(0xFF8E44AD), chevron = true, onClick = { onTab("safe") })
+                ListRow("Safe folder", subtitle = "Encrypted files behind a password of their own", icon = WonderIcons.Lock, tint = Color(0xFF8E44AD), chevron = true, onClick = { onTab("safe") }, help = "A private folder protected by Vault's encryption. Files inside are hidden from other apps.")
                 PanelDivider()
                 ListRow("Network", subtitle = if (ShareService.running) "Sharing on ${ShareService.address}" else "Windows, Mac and NAS shares, or share this phone over Wi-Fi", icon = WonderIcons.Hub, tint = Color(0xFF16A085), chevron = true, onClick = { onTab("network") })
             }
@@ -638,6 +638,17 @@ fun openFile(context: Context, f: File, report: (String) -> Unit) {
         return
     }
     val base = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+    // A photo or video opens in Memories with the rest of its folder to swipe through, and Back returns here: not the whole phone's gallery.
+    if (f.kind() == Kind.Image || f.kind() == Kind.Video) {
+        val sibs = f.parentFile?.listFiles()?.filter { it.isFile && (it.kind() == Kind.Image || it.kind() == Kind.Video) }?.sortedBy { it.name.lowercase() }.orEmpty()
+        val folder = Intent(base).setPackage("dev.wonderdesk.memories")
+        if (sibs.size > 1 && context.packageManager.queryIntentActivities(folder, 0).isNotEmpty()) {
+            val uris = sibs.map { FileProvider.getUriForFile(context, "${context.packageName}.files", it) }
+            val clip = android.content.ClipData.newRawUri("folder", uris[0]); uris.drop(1).forEach { clip.addItem(android.content.ClipData.Item(it)) }
+            folder.clipData = clip; folder.putExtra("dev.wonderdesk.FOLDER_INDEX", sibs.indexOf(f).coerceAtLeast(0))
+            context.launchSafely(folder, report); return
+        }
+    }
     if (preferred != null) {
         val direct = Intent(base).setPackage(preferred)
         if (context.packageManager.queryIntentActivities(direct, 0).isNotEmpty()) { context.launchSafely(direct, report); return }

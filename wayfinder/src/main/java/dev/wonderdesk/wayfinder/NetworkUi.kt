@@ -5,6 +5,7 @@ package dev.wonderdesk.wayfinder
 import android.content.Context
 import android.content.Intent
 import android.provider.DocumentsContract
+import androidx.compose.ui.graphics.asImageBitmap
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -385,7 +386,7 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
                 SwitchRow("Share over Wi-Fi", ShareService.running, { on ->
                     if (on) { if (android.os.Build.VERSION.SDK_INT >= 33) notifPerm.launch(android.Manifest.permission.POST_NOTIFICATIONS); ShareService.start(context) } else ShareService.stop(context)
                 }, subtitle = if (ShareService.running) "${ShareService.clients} connected" else "Shares “${folderLabel(cfg.root)}”${if (cfg.readOnly) ", read-only" else ""}",
-                    icon = WonderIcons.Wifi, tint = Color(0xFF16A085))
+                    icon = WonderIcons.Wifi, tint = Color(0xFF16A085), help = "Gives a link that anyone on the same Wi-Fi can use to download the files you pick.")
                 if (ShareService.running) {
                     PanelDivider(0.dp)
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -527,9 +528,9 @@ private fun ShareSettingsDialog(cfg: ShareConfig, onDismiss: () -> Unit, onSave:
             Panel {
                 SwitchRow("Web page (any browser)", c.http, { c = c.copy(http = it) })
                 PanelDivider()
-                SwitchRow("FTP (file managers, PCs)", c.ftp, { c = c.copy(ftp = it) })
+                SwitchRow("FTP (file managers, PCs)", c.ftp, { c = c.copy(ftp = it) }, help = "Lets a computer or another file manager on your Wi-Fi reach this phone's files. Turn it off when you finish.")
                 PanelDivider()
-                SwitchRow("Read-only", c.readOnly, { c = c.copy(readOnly = it) }, subtitle = "Visitors can download but not change anything")
+                SwitchRow("Read-only", c.readOnly, { c = c.copy(readOnly = it) }, subtitle = "Visitors can download but not change anything", help = "People who connect can look at and download the files but can't change or delete them.")
             }
             Field(c.password, { c = c.copy(password = it) }, "Password (optional)", supporting = "User name is “wayfinder”. Empty means no password.")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -675,6 +676,24 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
             }
     }
     fun runOp(label: String, work: ((Progress) -> Unit) -> Unit) { Jobs.enqueue(context, label) { job -> work { pr -> job.report(pr) } }; selected = emptySet() }
+    fun docMime(d: RippleDoc) = d.mime.ifBlank { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(d.name.substringAfterLast('.', "").lowercase()) ?: "" }
+    fun isMedia(d: RippleDoc) = !d.isDir && docMime(d).let { it.startsWith("image/") || it.startsWith("video/") }
+    /** Opens a photo or video with the rest of this computer folder to swipe through in Memories; Back returns to this folder. */
+    fun openFolder(e: RippleDoc): Boolean = runCatching {
+        val sibs = (docs ?: return false).filter { isMedia(it) }
+        val at = sibs.indexOfFirst { it.id == e.id }
+        if (sibs.size < 2 || at < 0) return false
+        val uris = sibs.map { d -> when (val pr = peer) {
+            is RipplePeer.Link -> RippleLink.viewUri(pr.fp, d.id.substringAfter('|'), d.name, "${d.size}-${d.modified}")
+            is RipplePeer.Grant -> DocumentsContract.buildDocumentUriUsingTree(pr.tree, d.id)
+        } }
+        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uris[at], docMime(e)).setPackage("dev.wonderdesk.memories")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (context.packageManager.queryIntentActivities(intent, 0).isEmpty()) return false
+        val clip = android.content.ClipData.newRawUri("folder", uris[0]); uris.drop(1).forEach { clip.addItem(android.content.ClipData.Item(it)) }
+        intent.clipData = clip; intent.putExtra("dev.wonderdesk.FOLDER_INDEX", at)
+        context.startActivity(intent); true
+    }.getOrDefault(false)
     /** Hands the viewer a live link to a big file instead of copying it first. */
     fun viewLive(e: RippleDoc): Boolean = runCatching {
         val link = (peer as RipplePeer.Link)
@@ -767,7 +786,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
                         val kind = if (e.isDir) Kind.Folder else kindOf(e.name)
                         val (icon, tint) = kindIcon(kind)
                         ListRow(e.name, Modifier.panelItem(i, current.size), subtitle = (if (e.isDir) "Folder" else formatBytes(e.size)) + " · " + dev.wonderdesk.shared.relativeTime(e.modified),
-                            leading = { IconTile(icon, tint, 40.dp) }, selected = sel,
+                            leading = { if (peer is RipplePeer.Link && isMedia(e) && e.size < 60L * 1024 * 1024) RemoteThumb(RippleLink.viewUri((peer as RipplePeer.Link).fp, e.id.substringAfter('|'), e.name, "${e.size}-${e.modified}"), docMime(e).startsWith("video/"), e.size, 40.dp) { IconTile(icon, tint, 40.dp) } else IconTile(icon, tint, 40.dp) }, selected = sel,
                             trailing = if (selected.isNotEmpty()) ({ Checkbox(sel, { on -> selected = if (on) selected + e.id else selected - e.id }) }) else null,
                             onLongClick = {
                                 if (selected.isNotEmpty()) selected = selected + e.id
@@ -777,6 +796,7 @@ private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
                             onClick = {
                                 if (selected.isNotEmpty()) selected = if (sel) selected - e.id else selected + e.id
                                 else if (e.isDir) { stack = stack + e.id; selected = emptySet() }
+                                else if (isMedia(e) && openFolder(e)) Unit
                                 else if (peer is RipplePeer.Grant && RippleShare.view(context, peer.tree, e.id, e.mime.ifBlank { "*/*" }, e.name)) Unit
                                 // Big files go straight to the viewer and are read as it plays; only small ones are copied first.
                                 else if (peer is RipplePeer.Link && e.size > 6L * 1024 * 1024 && viewLive(e)) Unit
@@ -844,4 +864,35 @@ fun folderLabel(path: String): String = when {
     path == Storage.primary.path -> "Internal storage"
     path.startsWith("/storage/") && path.count { it == '/' } == 2 -> "SD card or USB drive"
     else -> File(path).name.ifBlank { "Storage" }
+}
+
+
+private val remoteThumbs = object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) { override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount }
+private val thumbPool = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(2)
+
+/** A small preview of a photo or video that lives on a computer, read through the link as the list scrolls (cached; the fallback icon shows meanwhile). */
+@Composable
+fun RemoteThumb(uri: android.net.Uri, video: Boolean, size: Long, box: androidx.compose.ui.unit.Dp, fallback: @Composable () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val key = uri.toString()
+    var bmp by remember(key) { mutableStateOf(remoteThumbs.get(key)?.asImageBitmap()) }
+    LaunchedEffect(key) {
+        if (bmp != null) return@LaunchedEffect
+        bmp = kotlinx.coroutines.withContext(thumbPool) {
+            runCatching {
+                val b: android.graphics.Bitmap? = if (video) {
+                    val r = android.media.MediaMetadataRetriever()
+                    try { r.setDataSource(context, uri); r.getFrameAtTime(0) } finally { runCatching { r.release() } }
+                } else {
+                    val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    context.contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
+                    var sample = 1; while (o.outWidth / (sample * 2) >= 192 && o.outHeight / (sample * 2) >= 192) sample *= 2
+                    context.contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) }
+                }
+                b?.let { android.graphics.Bitmap.createScaledBitmap(it, 160, (160f * it.height / it.width.coerceAtLeast(1)).toInt().coerceAtLeast(1), true) }?.also { remoteThumbs.put(key, it) }
+            }.getOrNull()?.asImageBitmap()
+        }
+    }
+    val b = bmp
+    if (b != null) androidx.compose.foundation.Image(b, null, Modifier.size(box).clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop) else fallback()
 }
