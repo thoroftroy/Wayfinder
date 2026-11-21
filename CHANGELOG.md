@@ -1,5 +1,10 @@
 # Wayfinder changelog
 
+## v0.5.32
+
+- A new Wayfinder icon: a clean folder with the ship
+- Fixed a gap above the keyboard in screens with a bottom tab bar: the tab bar now steps aside while you type, so you can see what you are writing
+
 ## v0.5.31
 
 - Sharing (Stop) and file jobs (Cancel) also show as a card on the Wonderdesk Launcher's floating button, when it is in use
