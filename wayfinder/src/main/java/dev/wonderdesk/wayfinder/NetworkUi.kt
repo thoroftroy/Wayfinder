@@ -870,6 +870,19 @@ fun folderLabel(path: String): String = when {
 private val remoteThumbs = object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) { override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount }
 private val thumbPool = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(2)
 
+/** One preview pass from the computer (longest side [px]); kept on the phone so it never has to be fetched twice. Null if the computer can't make one. */
+private fun remotePreview(c: android.content.Context, uri: android.net.Uri, px: Int): android.graphics.Bitmap? {
+    val dir = java.io.File(c.cacheDir, "remote-previews").apply { mkdirs() }
+    val file = java.io.File(dir, "${uri.toString().hashCode().toUInt()}-${uri.getQueryParameter("v").orEmpty().hashCode().toUInt()}-$px.jpg")
+    val bytes = if (file.isFile) file.readBytes() else {
+        val got = c.contentResolver.openInputStream(uri.buildUpon().appendQueryParameter("thumb", px.toString()).build())?.use { it.readBytes() } ?: return null
+        if (got.isEmpty()) return null
+        runCatching { file.writeBytes(got) }
+        got
+    }
+    return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+}
+
 /** A small preview of a photo or video that lives on a computer, read through the link as the list scrolls (cached; the fallback icon shows meanwhile). */
 @Composable
 fun RemoteThumb(uri: android.net.Uri, video: Boolean, size: Long, box: androidx.compose.ui.unit.Dp, fallback: @Composable () -> Unit) {
@@ -878,19 +891,31 @@ fun RemoteThumb(uri: android.net.Uri, video: Boolean, size: Long, box: androidx.
     var bmp by remember(key) { mutableStateOf(remoteThumbs.get(key)?.asImageBitmap()) }
     LaunchedEffect(key) {
         if (bmp != null) return@LaunchedEffect
-        bmp = kotlinx.coroutines.withContext(thumbPool) {
-            runCatching {
-                val b: android.graphics.Bitmap? = if (video) {
-                    val r = android.media.MediaMetadataRetriever()
-                    try { r.setDataSource(context, uri); r.getFrameAtTime(0) } finally { runCatching { r.release() } }
-                } else {
-                    val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    context.contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
-                    var sample = 1; while (o.outWidth / (sample * 2) >= 192 && o.outHeight / (sample * 2) >= 192) sample *= 2
-                    context.contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) }
-                }
-                b?.let { android.graphics.Bitmap.createScaledBitmap(it, 160, (160f * it.height / it.width.coerceAtLeast(1)).toInt().coerceAtLeast(1), true) }?.also { remoteThumbs.put(key, it) }
-            }.getOrNull()?.asImageBitmap()
+        kotlinx.coroutines.withContext(thumbPool) {
+            // Previews come in passes: a tiny one almost at once, then a sharper one. The computer makes them (a few kilobytes each) and the phone keeps them.
+            var got = false
+            for (px in intArrayOf(48, 192)) {
+                val b = runCatching { remotePreview(context, uri, px) }.getOrNull()
+                if (b != null) { got = true; bmp = b.asImageBitmap(); if (px == 192) remoteThumbs.put(key, b) } else if (px == 48) break
+            }
+            if (!got) {
+                // A computer that can't make previews yet: the old way, only for pictures small enough to be worth fetching whole.
+                bmp = runCatching {
+                    val b: android.graphics.Bitmap? = if (video) {
+                        val r = android.media.MediaMetadataRetriever()
+                        try { r.setDataSource(context, uri); r.getFrameAtTime(0) } finally { runCatching { r.release() } }
+                    } else if (size in 1..(8L * 1024 * 1024)) {
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        bytes?.let { by ->
+                            val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            android.graphics.BitmapFactory.decodeByteArray(by, 0, by.size, o)
+                            var sample = 1; while (o.outWidth / (sample * 2) >= 192 && o.outHeight / (sample * 2) >= 192) sample *= 2
+                            android.graphics.BitmapFactory.decodeByteArray(by, 0, by.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+                        }
+                    } else null
+                    b?.let { android.graphics.Bitmap.createScaledBitmap(it, 160, (160f * it.height / it.width.coerceAtLeast(1)).toInt().coerceAtLeast(1), true) }?.also { remoteThumbs.put(key, it) }
+                }.getOrNull()?.asImageBitmap()
+            }
         }
     }
     val b = bmp

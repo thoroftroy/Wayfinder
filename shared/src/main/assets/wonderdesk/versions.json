@@ -1,10 +1,9 @@
 {
   "ecosystem": "0.3.0",
   "apps": {
-    "wayfinder": "0.6.7",
+    "wayfinder": "0.6.8",
     "packrat": "0.2.5",
     "memories": "0.2.3",
-    "cinema": "0.2.3",
     "melody": "0.2.4",
     "pages": "0.2.3",
     "gateway": "0.2.2",

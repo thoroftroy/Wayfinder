@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.6.8
+
+- Previews of pictures and videos in a computer's folders load much faster: a tiny preview first, then a sharper one, kept on the phone so they are never fetched twice
+
 ## v0.6.7
 
 - The symbols drifting in the background are smaller and fainter so they no longer crowd text; selected segments and chips are readable in every look (including Super); the warning banner at the top has a solid backing so its text is easy to read
