@@ -1,5 +1,10 @@
 # Wayfinder changelog
 
+## v0.7.0
+
+- Previews of pictures on a computer appear much faster: up to four load at once, and ones you have scrolled past no longer hold up the ones on screen
+- The background follows what you are doing: a hushed violet with locks in the Safe folder, arrows racing while files copy or move, a quieter scene in the Recycle bin, and on Home a warning amber and then red as your storage fills up
+
 ## v0.6.8
 
 - Previews of pictures and videos in a computer's folders load much faster: a tiny preview first, then a sharper one, kept on the phone so they are never fetched twice

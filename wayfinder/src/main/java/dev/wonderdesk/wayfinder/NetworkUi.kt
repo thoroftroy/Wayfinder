@@ -868,7 +868,7 @@ fun folderLabel(path: String): String = when {
 
 
 private val remoteThumbs = object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) { override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount }
-private val thumbPool = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(2)
+private val thumbPool = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(4)
 
 /** One preview pass from the computer (longest side [px]); kept on the phone so it never has to be fetched twice. Null if the computer can't make one. */
 private fun remotePreview(c: android.content.Context, uri: android.net.Uri, px: Int): android.graphics.Bitmap? {
@@ -895,6 +895,8 @@ fun RemoteThumb(uri: android.net.Uri, video: Boolean, size: Long, box: androidx.
             // Previews come in passes: a tiny one almost at once, then a sharper one. The computer makes them (a few kilobytes each) and the phone keeps them.
             var got = false
             for (px in intArrayOf(48, 192)) {
+                // Scrolled past while waiting its turn: leave the link free for the previews now on screen.
+                if (kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.isActive == false) return@withContext
                 val b = runCatching { remotePreview(context, uri, px) }.getOrNull()
                 if (b != null) { got = true; bmp = b.asImageBitmap(); if (px == 192) remoteThumbs.put(key, b) } else if (px == 48) break
             }
