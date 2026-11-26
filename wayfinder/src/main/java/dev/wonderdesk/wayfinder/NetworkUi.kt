@@ -43,7 +43,13 @@ var netClip by mutableStateOf<NetClip?>(null)
 /** A paired Ripple computer Wayfinder may browse. Access comes from a persisted system
  *  folder grant (picked once in the system picker), never from querying Ripple's provider
  *  directly. Android forbids apps from reading another app's DocumentsProvider that way. */
-data class RippleComputer(val fp: String, val name: String, val summary: String, val docId: String, val tree: String)
+data class RippleComputer(val fp: String, val name: String, val summary: String, val docId: String, val tree: String) {
+    companion object {
+        val Saver = androidx.compose.runtime.saveable.listSaver<RippleComputer?, String>(
+            save = { r -> if (r == null) emptyList() else listOf(r.fp, r.name, r.summary, r.docId, r.tree) },
+            restore = { l -> if (l.size == 5) RippleComputer(l[0], l[1], l[2], l[3], l[4]) else null })
+    }
+}
 
 object RippleShare {
     const val AUTHORITY = "dev.wonderdesk.ripple.files"
@@ -360,7 +366,8 @@ fun NetworkScreen(onTab: (String) -> Unit, onShowLocal: (File) -> Unit) {
     var linkComputers by remember { mutableStateOf<List<RippleComputer>>(emptyList()) }
     var linkDenied by remember { mutableStateOf(false) }
     var rippleInstalled by remember { mutableStateOf(false) }
-    var openRipple by remember { mutableStateOf<RippleComputer?>(null) }
+    // Kept through a rotation or Android closing Wayfinder in the background (a landscape video in Memories, say), so Back from a viewer lands in the same computer folder.
+    var openRipple by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = RippleComputer.Saver) { mutableStateOf<RippleComputer?>(null) }
     var forgetRipple by remember { mutableStateOf<RippleComputer?>(null) }
     val toastRef0 = remember { mutableStateOf<(String) -> Unit>({}) }
     val connectRipple = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -653,7 +660,7 @@ private fun NetBrowser(server: NetServer, onClose: () -> Unit) {
 private fun RippleBrowser(computer: RippleComputer, onClose: () -> Unit) {
     val context = LocalContext.current
     val p = wonderPalette()
-    var stack by remember { mutableStateOf(listOf(computer.docId)) }
+    var stack by androidx.compose.runtime.saveable.rememberSaveable(computer.docId) { mutableStateOf(listOf(computer.docId)) }
     val cur = stack.last()
     var docs by remember { mutableStateOf<List<RippleDoc>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }

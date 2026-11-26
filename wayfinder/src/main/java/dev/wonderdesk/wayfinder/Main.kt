@@ -427,18 +427,30 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
     val toastRef = remember { mutableStateOf<(String) -> Unit>({}) }
     // Everything a row shows is read here, off the main thread, so scrolling never waits on the disk.
     LaunchedEffect(dir.path, category, sort, desc, hidden, refresh, tick) {
-        // The old list stays up while the next folder is read; the spinner only appears if that's slow.
-        val spinner = launch { delay(150); files = null }
-        val loaded = withContext(Dispatchers.IO) {
-            if (category != null) {
+        if (category != null) {
+            val spinner = launch { delay(150); files = null }
+            val loaded = withContext(Dispatchers.IO) {
                 val c = CATEGORIES.first { it.first == category }
                 val list = Listing.category(context, c.second, c.third)
                 if (sort == SortBy.Date && desc || sort == SortBy.Name && !desc && c.third != null) list else Listing.sort(list, sort.name, desc, foldersFirst = false)
-            } else Listing.sort(Listing.list(dir, hidden), sort.name, desc, foldersFirst = prefs.getBoolean("foldersFirst", true))
+            }
+            spinner.cancel(); files = loaded; listDir = dir.path
+            return@LaunchedEffect
         }
-        spinner.cancel()
-        files = loaded
-        listDir = dir.path
+        val foldersFirst = prefs.getBoolean("foldersFirst", true)
+        fun arrange(all: List<Entry>) = Listing.sort(all.filter { hidden || !it.hidden }, sort.name, desc, foldersFirst)
+        // A folder seen lately (or read ahead from the one above) shows straight away, then is brought up to date.
+        val before = Listing.cached(dir)
+        if (before != null && listDir != dir.path) { files = arrange(before); listDir = dir.path }
+        val spinner = if (before == null) launch { delay(150); files = null } else null
+        // First the names, sizes and dates, which is quick; how many items each folder holds follows a moment later.
+        val known = before?.associate { it.path to it.children }.orEmpty()
+        val quick = withContext(Dispatchers.IO) { Listing.quick(dir) }.map { e -> if (e.isDir) e.copy(children = known[e.path]?.takeIf { it >= 0 } ?: Listing.COUNT_PENDING) else e }
+        spinner?.cancel()
+        files = arrange(quick); listDir = dir.path
+        val full = Listing.fillCounts(quick)
+        Listing.keep(dir, full)
+        files = arrange(full)
     }
     LaunchedEffect(query, searching) {
         if (!searching || query.length < 2) { results = null; return@LaunchedEffect }
@@ -530,7 +542,7 @@ private fun Browser(dir: File, category: String?, refresh: Int, focusName: Strin
                             itemsIndexed(shown.distinctBy { it.path }, key = { _, e -> e.path }) { i, e -> Box(Modifier.animateItemPlacement()) {
                                 val sel = e.path in selected
                                 val sub = remember(e) {
-                                    (if (e.isDir) "${e.children} item${if (e.children == 1) "" else "s"}" else formatBytes(e.size)) + " · " + dev.wonderdesk.shared.relativeTime(e.modified) +
+                                    (if (e.isDir) (if (e.children < 0) "" else "${e.children} item${if (e.children == 1) "" else "s"} · ") else formatBytes(e.size) + " · ") + dev.wonderdesk.shared.relativeTime(e.modified) +
                                         if (results != null || category != null) " · " + (e.file.parent ?: "").removePrefix(Storage.primary.path).ifBlank { "/" } else ""
                                 }
                                 ListRow(e.name, Modifier.panelItem(i, shown.size), subtitle = sub,

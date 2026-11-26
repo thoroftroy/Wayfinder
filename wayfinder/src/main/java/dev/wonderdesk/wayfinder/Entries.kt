@@ -3,6 +3,7 @@ package dev.wonderdesk.wayfinder
 import android.content.Context
 import android.provider.MediaStore
 import java.io.File
+import kotlinx.coroutines.async
 
 /**
  * A file with everything the list shows already read, so scrolling never touches the disk.
@@ -23,13 +24,50 @@ data class Entry(
 }
 
 object Listing {
-    fun entry(f: File): Entry {
-        val dir = f.isDirectory
-        return Entry(f, f.name, dir, if (dir) 0 else f.length(), f.lastModified(), if (dir) Kind.Folder else kindOf(f.name), if (dir) (f.list()?.size ?: 0) else -1, f.name.startsWith("."))
+    /** Folder counts not read yet (shown as just the date until they arrive). */
+    const val COUNT_PENDING = -2
+
+    /** Type, size and date in one read of the disk, instead of three. */
+    private fun quickEntry(f: File): Entry {
+        val a = runCatching { java.nio.file.Files.readAttributes(f.toPath(), java.nio.file.attribute.BasicFileAttributes::class.java) }.getOrNull()
+        val dir = a?.isDirectory ?: f.isDirectory
+        return Entry(f, f.name, dir, if (dir) 0 else a?.size() ?: f.length(), a?.lastModifiedTime()?.toMillis() ?: f.lastModified(),
+            if (dir) Kind.Folder else kindOf(f.name), if (dir) COUNT_PENDING else -1, f.name.startsWith("."))
     }
+
+    fun entry(f: File): Entry = quickEntry(f).let { if (it.isDir) it.copy(children = f.list()?.size ?: 0) else it }
+
+    /** Every item in a folder (hidden ones too) with names, sizes and dates, but folder counts still to come. */
+    fun quick(dir: File): List<Entry> = dir.listFiles()?.map { quickEntry(it) }.orEmpty()
 
     fun list(dir: File, hidden: Boolean): List<Entry> =
         dir.listFiles()?.asSequence()?.filter { hidden || !it.name.startsWith(".") }?.map { entry(it) }?.toList().orEmpty()
+
+    /** Folders seen lately, so going back (or into a folder read ahead) shows its contents at once. */
+    private val recent = android.util.LruCache<String, List<Entry>>(80)
+    fun cached(dir: File): List<Entry>? = recent.get(dir.path)
+    fun keep(dir: File, all: List<Entry>) { recent.put(dir.path, all) }
+    fun forget(dir: File) { recent.remove(dir.path) }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val readers = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(6)
+
+    /**
+     * Fills in how many items each folder holds, several folders at a time. While it is in there it keeps the folder's
+     * contents too (for folders of up to 400 items), so tapping into one opens instantly.
+     */
+    suspend fun fillCounts(list: List<Entry>): List<Entry> = kotlinx.coroutines.coroutineScope {
+        // Only the most likely next stops are read ahead (newest folders first), to go easy on the battery.
+        val ahead = list.filter { it.isDir }.sortedByDescending { it.modified }.take(24).map { it.path }.toSet()
+        list.map { e ->
+            if (!e.isDir || e.children >= 0 && recent.get(e.path) != null) kotlinx.coroutines.CompletableDeferred(e)
+            else async(readers) {
+                val names = e.file.list()
+                if (e.path in ahead && names != null && names.size <= 400 && recent.get(e.path) == null) runCatching { keep(e.file, quick(e.file)) }
+                e.copy(children = names?.size ?: 0)
+            }
+        }.map { it.await() }
+    }
 
     fun sort(list: List<Entry>, by: String, desc: Boolean, foldersFirst: Boolean = true): List<Entry> {
         val cmp: Comparator<Entry> = when (by) {
