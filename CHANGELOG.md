@@ -1,5 +1,13 @@
 # Wayfinder changelog
 
+## v0.8.0
+
+- Folders open much faster: names, sizes and dates appear at once and item counts fill in a moment later, folders you have just been in show instantly, and the likeliest next folders are read ahead
+- The animated background now has a picture of its own behind everything: a compass over a dotted route, as on a map. It is faint, so text stays easy to read
+- Aqua changes far more through the day: a rose dawn, gold sunrise, turquoise morning, deep azure noon, warm afternoon, orange sunset, violet dusk and a real dark night with the moon shimmering through the water and glowing plankton. Now and then a cloud passes over and the light dims
+- Super's space changes with the time of day too: a dark night with brighter stars, a rose dawn, teal morning, cobalt noon and a red and amber sunset
+- Opening the app no longer sprays a burst of fast symbols across the background; celebrations are a gentle lift of a few symbols, and only for something you just did
+
 ## v0.7.0
 
 - Previews of pictures on a computer appear much faster: up to four load at once, and ones you have scrolled past no longer hold up the ones on screen
