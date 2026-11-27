@@ -140,13 +140,23 @@ fun WayfinderApp() {
     // The scene follows what you are doing: a hushed violet with locks in the Safe folder, arrows racing while files copy or move,
     // and on Home a warning amber, then red, as the phone's storage fills up.
     val fullness = remember(tab, refresh) { runCatching { val st = android.os.StatFs(Storage.primary.path); 1f - st.availableBytes.toFloat() / st.totalBytes }.getOrDefault(0f) }
+    // The compass finds its way with you: each folder you open swings it to a heading of its own (the same folder, the same heading),
+    // and its route races while files are copied or moved. The tide shows the job's progress, or how full storage is on Home.
+    SceneFeedScope()
+    val running = Jobs.active.firstOrNull { it.state == "running" }
+    val jobFrac = running?.progress?.let { if (it.total > 0) (it.done.toFloat() / it.total).coerceIn(0f, 1f) else null }
+    SideEffect {
+        SceneFeed.angle = if (tab == "browse") ((path.hashCode() and 0x7fffffff) % 360).toFloat() else if (tab == "home") 0f else Float.NaN
+        SceneFeed.active = Jobs.active.isNotEmpty()
+    }
     SceneMoodEffect(when {
         tab == "safe" -> SceneMood(hue = 265f, tint = android.graphics.Color.argb(60, 90, 60, 160), energy = .5f, hush = .2f, glyphs = listOf("🔒", "•", "*"))
-        Jobs.active.isNotEmpty() -> SceneMood(energy = 2.4f, glyphs = listOf("➤", "→", "→", "•"))
+        Jobs.active.isNotEmpty() -> SceneMood(energy = 2.4f, glyphs = listOf("➤", "→", "→", "•"), level = jobFrac, levelHue = 200f)
         tab == "network" -> SceneMood(hue = 172f, glyphs = listOf("↔", "⇄", "•", "~"))
         tab == "trash" -> SceneMood(energy = .5f, hush = .35f, glyphs = listOf("✕", "•", "·"))
-        tab == "home" && fullness > .92f -> SceneMood(hue = 4f, tint = android.graphics.Color.argb(80, 225, 70, 50), pulse = .2f, glyphs = listOf("!", "▮", "•"))
-        tab == "home" && fullness > .8f -> SceneMood(hue = 38f, tint = android.graphics.Color.argb(55, 245, 180, 60), glyphs = listOf("▮", "•", "!"))
+        tab == "home" && fullness > .92f -> SceneMood(hue = 4f, tint = android.graphics.Color.argb(80, 225, 70, 50), pulse = .2f, glyphs = listOf("!", "▮", "•"), level = fullness, levelHue = 4f)
+        tab == "home" && fullness > .8f -> SceneMood(hue = 38f, tint = android.graphics.Color.argb(55, 245, 180, 60), glyphs = listOf("▮", "•", "!"), level = fullness, levelHue = 38f)
+        tab == "home" -> SceneMood(level = fullness, levelHue = 200f)
         else -> SceneMood()
     })
     @Composable fun Pages() { when {

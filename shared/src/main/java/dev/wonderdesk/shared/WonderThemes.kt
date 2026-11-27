@@ -57,6 +57,8 @@ object SceneFeed {
     @Volatile var active = false
     /** A word for the picture: "locked", "open", "error", "recording", "playing", "offline". */
     @Volatile var state = ""
+    /** A few live settings, 0 to 1 each, for pictures that show them (Control Room: media, ring, notifications and alarm volume, brightness). */
+    val values = FloatArray(5) { -1f }
     /** Small pictures to show (recent photos in Memories). */
     @Volatile var pictures: List<Bitmap> = emptyList()
     fun clear() { amp = 0f; waveOn = false; count = -1; sign = 1; angle = Float.NaN; tilting = false; active = false; state = "" }
@@ -143,6 +145,8 @@ internal class AppThemeLayer(private val w: Int, private val h: Int, private val
     private var flash = 0f
     private var spike = 0f
     private var beatPhase = 0f
+    private val faders = FloatArray(5) { .5f }
+    private val faderV = FloatArray(5)
 
     fun step(dt: Float) {
         t += dt
@@ -177,6 +181,11 @@ internal class AppThemeLayer(private val w: Int, private val h: Int, private val
                 if (st != "locked" && st != "error" && st != "open") { dial += dt * 2f; dialTo = dial }
             }
             "pulse" -> beatPhase += dt * (1.1f + SceneFeed.amp * 2.6f)
+            "mixer" -> for (k in faders.indices) {
+                // Springy faders: they slide to the phone's real level and settle with a little bounce.
+                val want = SceneFeed.values[k].takeIf { it >= 0f } ?: (.5f + .3f * sin(t * .3f + k))
+                faderV[k] += (want - faders[k]) * 60f * dt; faderV[k] *= exp(-dt * 9f); faders[k] += faderV[k] * dt
+            }
             "stars" -> for (k in lit.indices) lit[k] = (lit[k] - dt * .6f).coerceAtLeast(0f)
         }
         rings.forEach { it.age += dt }; rings.removeAll { it.age > it.life }
@@ -230,6 +239,7 @@ internal class AppThemeLayer(private val w: Int, private val h: Int, private val
             "rings", "sound", "radar" -> if (press) rings += Ring(x, y, 0f, 2.6f, .8f)
             "stars" -> stars.indices.minByOrNull { hypot(stars[it][0] - x, stars[it][1] - y) }?.let { lit[it] = 1f; if (press) shoots += Shoot(x, y, .8f) }
             "pulse" -> if (press) spike = 1f
+            "mixer" -> { val k = ((x / w) * faders.size).toInt().coerceIn(0, faders.size - 1); faderV[k] += if (press) 2.5f else -dy / h * 40f }
             "shield" -> if (press) flash = 1f
         }
     }
@@ -266,7 +276,7 @@ internal class AppThemeLayer(private val w: Int, private val h: Int, private val
             var n = live
             while (spawnAcc >= 1f && n < want) { spawnAcc -= 1f; n++
                 // Few bubbles for a small answer are big; a big answer is a fizz of small ones.
-                val r = s * (.07f / sqrt(max(4f, want.toFloat()))).coerceIn(.01f, .05f) * (.7f + rnd.nextFloat() * .6f)
+                val r = s * (.24f / sqrt(max(3f, want.toFloat()))).coerceIn(.025f, .13f) * (.7f + rnd.nextFloat() * .6f)
                 val sinking = SceneFeed.sign < 0
                 bubs += Bub(rnd.nextFloat() * w, if (sinking) -r * 2 else h + r * 2, r, s * (.12f + rnd.nextFloat() * .18f) * (if (sinking) .6f else 1f), rnd.nextFloat() * 6.28f)
             }
@@ -330,9 +340,9 @@ internal class AppThemeLayer(private val w: Int, private val h: Int, private val
                 val sinking = SceneFeed.sign < 0
                 for (b in bubs) {
                     if (b.pop >= 0f) { line.strokeWidth = s * .004f; line.color = col(.8f * (1f - b.pop)); c.drawCircle(b.x, b.y, b.r * (1f + b.pop * 1.6f), line); continue }
-                    fill.shader = RadialGradient(b.x - b.r * .35f, b.y - b.r * .4f, b.r * 1.3f, intArrayOf(white(.9f), if (sinking) col(.75f) else white(.18f), col(if (sinking) .9f else .45f)), floatArrayOf(0f, .5f, 1f), Shader.TileMode.CLAMP)
+                    fill.shader = RadialGradient(b.x - b.r * .35f, b.y - b.r * .4f, b.r * 1.3f, intArrayOf(white(1.9f), if (sinking) col(1.6f) else white(.6f), col(if (sinking) 1.9f else 1.4f)), floatArrayOf(0f, .5f, 1f), Shader.TileMode.CLAMP)
                     c.drawCircle(b.x, b.y, b.r, fill); fill.shader = null
-                    line.strokeWidth = s * .003f; line.color = col(.7f); c.drawCircle(b.x, b.y, b.r, line)
+                    line.strokeWidth = s * .006f; line.color = col(1.9f); c.drawCircle(b.x, b.y, b.r, line)
                 }
             }
             "gears" -> {
@@ -535,6 +545,24 @@ internal class AppThemeLayer(private val w: Int, private val h: Int, private val
                 line.color = col(.55f + .4f * flash); line.strokeWidth = s * .008f; c.drawPath(path, line)
                 line.strokeWidth = s * .02f; val tick = Path(); tick.moveTo(cx - sc * .3f, cy); tick.lineTo(cx - sc * .05f, cy + sc * .25f); tick.lineTo(cx + sc * .35f, cy - sc * .25f); c.drawPath(tick, line)
             }
+            "mixer" -> {
+                // A mixing desk: one fader for each volume and the screen brightness, sitting where the phone really is.
+                val names = listOf("MEDIA", "RING", "NOTIFY", "ALARM", "LIGHT")
+                val top = h * .2f; val bottom = h * .78f
+                for (k in faders.indices) {
+                    val x = w * (k + .5f) / faders.size; val v = faders[k].coerceIn(-.05f, 1.05f); val y = bottom - (bottom - top) * v
+                    line.strokeWidth = s * .018f; line.color = col(.22f); c.drawLine(x, top, x, bottom, line)
+                    line.color = col(.7f); c.drawLine(x, bottom, x, y, line)
+                    line.strokeWidth = s * .003f; line.color = col(.35f)
+                    for (j in 0..10) { val ty = top + (bottom - top) * j / 10f; c.drawLine(x + s * .03f, ty, x + s * (if (j % 5 == 0) .055f else .042f), ty, line) }
+                    rect.set(x - s * .05f, y - s * .022f, x + s * .05f, y + s * .022f)
+                    fill.shader = LinearGradient(0f, rect.top, 0f, rect.bottom, white(1f), col(.9f), Shader.TileMode.CLAMP); c.drawRoundRect(rect, s * .012f, s * .012f, fill); fill.shader = null
+                    line.color = col(.9f); line.strokeWidth = s * .004f; c.drawLine(rect.left + s * .012f, y, rect.right - s * .012f, y, line)
+                    text.color = col(.6f); text.textSize = s * .03f; c.drawText(names[k], x, bottom + s * .07f, text)
+                }
+                // The flashlight on: a warm beam floods down from the top.
+                if (SceneFeed.state == "torch") { fill.shader = RadialGradient(w * .5f, -h * .05f, h * .8f, Color.argb((a * 1.4f).toInt().coerceAtMost(255), 255, 230, 140), 0, Shader.TileMode.CLAMP); c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), fill); fill.shader = null }
+            }
             "pulse" -> {
                 line.strokeWidth = s * .002f; line.color = col(.22f)
                 val g = s * .1f; var gx = (t * s * .05f) % g - g; while (gx < w) { c.drawLine(gx, 0f, gx, h.toFloat(), line); gx += g }
@@ -600,7 +628,8 @@ internal class AppThemeLayer(private val w: Int, private val h: Int, private val
             appName.contains("Memories", true) -> "frames"
             appName.contains("Vault", true) -> "dial"
             appName.contains("Safekeeper", true) -> "shield"
-            appName.contains("Pulse", true) || appName.contains("Control Room", true) -> "pulse"
+            appName.contains("Pulse", true) -> "pulse"
+            appName.contains("Control Room", true) -> "mixer"
             appName.contains("Packrat", true) || appName.contains("Apphub", true) || appName.contains("App Hub", true) -> "boxes"
             else -> null
         }

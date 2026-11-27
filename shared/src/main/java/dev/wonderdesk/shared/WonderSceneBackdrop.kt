@@ -278,6 +278,8 @@ object WonderMood {
     internal val mood = mutableStateOf(SceneMood())
     internal val burst = mutableStateOf<Pair<Long, List<String>>?>(null)
     internal val ping = mutableStateOf<Pair<Long, ScenePing>?>(null)
+    /** The moods of the screens showing now, innermost last. */
+    internal val stack = ArrayList<Pair<Any, SceneMood>>()
     fun set(m: SceneMood) { mood.value = m }
     fun clear() { mood.value = SceneMood() }
     /** A task done, a sum answered, an update installed: a green wave rises through the scene and a few symbols lift with it. */
@@ -289,9 +291,14 @@ object WonderMood {
 /** Gives the scene this mood while the calling screen is showing, and puts the app's usual scene back when it leaves. */
 @Composable
 fun SceneMoodEffect(mood: SceneMood) {
-    DisposableEffect(mood) {
-        WonderMood.set(mood)
-        onDispose { if (WonderMood.mood.value == mood) WonderMood.clear() }
+    // Moods stack: a screen inside another (a tab, a dialog) shows its own, and when it goes the one underneath comes back.
+    val slot = remember { Any() }
+    DisposableEffect(slot) { onDispose { WonderMood.stack.removeAll { it.first === slot }; WonderMood.mood.value = WonderMood.stack.lastOrNull()?.second ?: SceneMood() } }
+    SideEffect {
+        val i = WonderMood.stack.indexOfFirst { it.first === slot }
+        if (i >= 0) WonderMood.stack[i] = slot to mood else WonderMood.stack.add(slot to mood)
+        val top = WonderMood.stack.last().second
+        if (WonderMood.mood.value != top) WonderMood.mood.value = top
     }
 }
 

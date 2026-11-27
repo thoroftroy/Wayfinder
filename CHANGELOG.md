@@ -2,6 +2,8 @@
 
 ## v0.8.0
 
+- The background compass swings to a heading of its own for each folder you open, its route races while files copy or move, and a tide shows the job's progress (or on Home, how full the storage is)
+- The background answers your finger: a tap sends rings out and pops what it lands on, and dragging or scrolling leaves a wake and stirs the scene. Saving, adding, deleting and finishing things send a wave of colour through it, and an error gives a red shudder
 - Folders open much faster: names, sizes and dates appear at once and item counts fill in a moment later, folders you have just been in show instantly, and the likeliest next folders are read ahead
 - The animated background now has a picture of its own behind everything: a compass over a dotted route, as on a map. It is faint, so text stays easy to read
 - Aqua changes far more through the day: a rose dawn, gold sunrise, turquoise morning, deep azure noon, warm afternoon, orange sunset, violet dusk and a real dark night with the moon shimmering through the water and glowing plankton. Now and then a cloud passes over and the light dims
