@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.8.2
+
+- Rows that scroll sideways (chips, filters, tabs) now fade at the edge where there is more, show a small arrow you can tap, and nudge once when first shown, so it is clear there is more to scroll to
+
 ## v0.8.1
 
 - The moving background holds still while Battery Saver is on, so it uses next to no power then. It still changes with what the app is doing

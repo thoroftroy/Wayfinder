@@ -84,7 +84,7 @@ private fun PickerScreen(intent: Intent, finish: (Pair<Int, Intent?>) -> Unit) {
                 }
                 return@Column
             }
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().scrollRow().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("Internal" to root, "Downloads" to File(root, "Download"), "Pictures" to File(root, "Pictures"), "DCIM" to File(root, "DCIM"), "Documents" to File(root, "Documents"), "Music" to File(root, "Music"), "Movies" to File(root, "Movies"))
                     .filter { it.second.isDirectory }.forEach { (n, f) -> Chip(n, dir.path == f.path, { dir = f }) }
             }

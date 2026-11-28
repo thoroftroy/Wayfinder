@@ -1413,7 +1413,7 @@ fun WidgetLookPicker(look: WidgetLook, onChange: (WidgetLook) -> Unit) {
     val prefs = remember { WidgetPrefs(context, id) }
     var ink by remember { mutableStateOf(prefs.str("ink", "auto")) }
     Panel(title = "Title colour") {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth().scrollRow().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("auto" to "Automatic", "white" to "White", "dark" to "Dark", "blue" to "Aqua blue", "pink" to "Super pink", "gold" to "Gold").forEach { (k, l) ->
                 Chip(l, ink == k, { ink = k; prefs.put("ink" to k) })
             }

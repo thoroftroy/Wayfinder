@@ -137,7 +137,7 @@ private fun TextPage(f: File) {
     val text by produceState<String?>(null, f) { value = withContext(Dispatchers.IO) { runCatching { f.bufferedReader().use { r -> val b = CharArray(400_000); val n = r.read(b); if (n <= 0) "" else String(b, 0, n) } }.getOrDefault("Couldn't read this file") } }
     Box(Modifier.fillMaxSize().statusBarsPadding().padding(top = 72.dp, start = 10.dp, end = 10.dp, bottom = 10.dp).mediaGlass(rememberPlayerChrome())) {
         SelectionContainer {
-            Text(text ?: "", Modifier.fillMaxSize().verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding(),
+            Text(text ?: "", Modifier.fillMaxSize().verticalScroll(rememberScrollState()).scrollRow().padding(16.dp).navigationBarsPadding(),
                 color = Color(0xFFE8EDF2), fontFamily = if (f.kind() == Kind.Code) FontFamily.Monospace else FontFamily.Default, fontSize = 14.sp)
         }
     }

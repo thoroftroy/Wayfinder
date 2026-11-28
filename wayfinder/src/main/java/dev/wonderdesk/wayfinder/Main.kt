@@ -261,7 +261,7 @@ private fun Home(refresh: Int, onOpen: (File) -> Unit, onCategory: (String) -> U
                 SwitchRow("Open in a folder instead of Home", sb2, { sb2 = it; prefs.edit().putBoolean("startBrowse", it).apply() }, icon = WonderIcons.FolderOpen, tint = Color(0xFF1E7FE8)); PanelDivider()
                 var sp2 by remember { mutableStateOf(prefs.getString("startPath", "") ?: "") }
                 Column(Modifier.padding(16.dp, 10.dp)) { Text("That folder is", style = MaterialTheme.typography.labelLarge)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.scrollRow(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("" to "Internal storage", Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).path to "Downloads", Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).path to "Documents",
                             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).path to "Camera", Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).path to "Pictures").forEach { (v, n) -> Chip(n, sp2 == v, { sp2 = v; prefs.edit().putString("startPath", v).apply() }) } } }
                 PanelDivider()
