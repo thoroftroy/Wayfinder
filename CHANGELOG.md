@@ -1,5 +1,9 @@
 # Wayfinder changelog
 
+## v0.8.1
+
+- The moving background holds still while Battery Saver is on, so it uses next to no power then. It still changes with what the app is doing
+
 ## v0.8.0
 
 - The background compass swings to a heading of its own for each folder you open, its route races while files copy or move, and a tide shows the job's progress (or on Home, how full the storage is)
